@@ -1,0 +1,35 @@
+# scripts/create_project.tcl
+# Run from repo root:
+#   vivado -mode batch -source scripts/create_project.tcl
+# or in GUI Tcl console:
+#   cd <repo_root>
+#   source scripts/create_project.tcl
+
+set PROJ_NAME "octogen"
+set PROJ_DIR  [file normalize "./vivado"]
+set PART      "xc7k325tffg676-2";
+set TOP       "octogen_top";
+
+set RTL_DIR   [file normalize "./src/rtl"]
+set XDC_DIR   [file normalize "./constraints"]
+
+file mkdir $PROJ_DIR
+create_project $PROJ_NAME $PROJ_DIR -part $PART -force
+
+# Add RTL
+set rtl_files [glob -nocomplain -directory $RTL_DIR -types f -recursive *.v *.sv *.vh *.vhd]
+if {[llength $rtl_files] == 0} {
+  puts "ERROR: No RTL files found under $RTL_DIR"
+  exit 1
+}
+add_files -norecurse $rtl_files
+set_property top $TOP [current_fileset]
+
+# Add constraints
+set xdc_files [glob -nocomplain -directory $XDC_DIR -types f *.xdc]
+if {[llength $xdc_files] > 0} {
+  add_files -fileset constrs_1 -norecurse $xdc_files
+}
+
+update_compile_order -fileset sources_1
+puts "Created: $PROJ_DIR/$PROJ_NAME.xpr"
