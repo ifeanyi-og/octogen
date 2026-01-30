@@ -36,7 +36,7 @@ entity fft_recomb is
            bus1 : in STD_LOGIC_VECTOR (31 downto 0);
            bus2 : in STD_LOGIC_VECTOR (31 downto 0);
            bus3 : in STD_LOGIC_VECTOR (31 downto 0);
-           str_out : in STD_LOGIC_VECTOR (31 downto 0));
+           str_out : out STD_LOGIC_VECTOR (31 downto 0));
 end fft_recomb;
 
 architecture Behavioral of fft_recomb is
