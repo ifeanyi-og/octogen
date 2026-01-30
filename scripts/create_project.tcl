@@ -21,7 +21,7 @@ create_project $PROJ_NAME $PROJ_DIR -part $PART -force
 package require fileutil
 
 set rtl_files {}
-set patterns {*.v *.sv *.vh *.vhd}
+set patterns {*.v *.sv *.vh *.vhd *.vhdl}
 
 foreach p $patterns {
   set found [fileutil::findByPattern $RTL_DIR -glob $p]
