@@ -16,8 +16,22 @@ set XDC_DIR   [file normalize "./constraints"]
 file mkdir $PROJ_DIR
 create_project $PROJ_NAME $PROJ_DIR -part $PART -force
 
-# Add RTL
-set rtl_files [glob -nocomplain -directory $RTL_DIR -types f -recursive *.v *.sv *.vh *.vhd]
+# ---- Add RTL sources (recursive) ----
+# fileutil::find is the most robust way in Vivado Tcl
+package require fileutil
+
+set rtl_files {}
+set patterns {*.v *.sv *.vh *.vhd}
+
+foreach p $patterns {
+  set found [fileutil::findByPattern $RTL_DIR -glob $p]
+  if {[llength $found] > 0} {
+    set rtl_files [concat $rtl_files $found]
+  }
+}
+
+# De-duplicate
+set rtl_files [lsort -unique $rtl_files]
 if {[llength $rtl_files] == 0} {
   puts "ERROR: No RTL files found under $RTL_DIR"
   exit 1
