@@ -45,5 +45,14 @@ if {[llength $xdc_files] > 0} {
   add_files -fileset constrs_1 -norecurse $xdc_files
 }
 
+# ---- Add Block Designs (.bd) ----
+set BD_DIR [file normalize "./src/bd"]
+set bd_files [glob -nocomplain -directory $BD_DIR -types f *.bd]
+
+if {[llength $bd_files] > 0} {
+  add_files -norecurse $bd_files
+  puts "INFO: Added [llength $bd_files] block design(s)"
+}
+
 update_compile_order -fileset sources_1
 puts "Created: $PROJ_DIR/$PROJ_NAME.xpr"
