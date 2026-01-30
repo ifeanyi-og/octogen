@@ -1,0 +1,35 @@
+# -----------------------------
+# Vivado generated artifacts
+# -----------------------------
+# Per-project outputs (your screenshot shows these)
+.Xil/
+*.cache/
+*.hw/
+*.sim/
+*.runs/
+*.srcs/
+*.gen/
+*.ip_user_files/
+
+# Logs / journal / misc
+*.jou
+*.log
+*.str
+vivado_pid*.str
+dfx_runtime
+
+# User-specific settings
+*.xpr.user
+*.wcfg
+
+# Maybe take out
+*.xci
+*.xml
+*.txt
+
+# Optional: if you choose to keep all builds in a local folder
+vivado/
+
+# OS noise
+.DS_Store
+Thumbs.db
