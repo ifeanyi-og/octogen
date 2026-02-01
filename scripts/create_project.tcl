@@ -47,7 +47,16 @@ if {[llength $xdc_files] > 0} {
 
 # ---- Add Block Designs (.bd) ----
 set BD_DIR [file normalize "./src/bd"]
-set bd_files [glob -nocomplain -directory $BD_DIR -types f *.bd]
+
+set bd_files [fileutil::findByPattern $BD_DIR -glob *.bd]
+set bd_files [lsort -unique $bd_files]
+
+if {[llength $bd_files] > 0} {
+  add_files -norecurse $bd_files
+  puts "INFO: Added [llength $bd_files] block design(s)"
+} else {
+  puts "INFO: No block designs found under $BD_DIR"
+}
 
 if {[llength $bd_files] > 0} {
   add_files -norecurse $bd_files
