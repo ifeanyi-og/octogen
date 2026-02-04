@@ -16,6 +16,11 @@ set XDC_DIR   [file normalize "./constraints"]
 file mkdir $PROJ_DIR
 create_project $PROJ_NAME $PROJ_DIR -part $PART -force
 
+# Ensure this project is PART-based (not BOARD-based)
+if {[catch {get_property board_part [current_project]} bp] == 0} {
+  set_property board_part {} [current_project]
+}
+
 # ---- Add RTL sources (recursive) ----
 # fileutil::find is the most robust way in Vivado Tcl
 package require fileutil
@@ -51,16 +56,20 @@ set BD_DIR [file normalize "./src/bd"]
 set bd_files [fileutil::findByPattern $BD_DIR -glob *.bd]
 set bd_files [lsort -unique $bd_files]
 
-if {[llength $bd_files] > 0} {
-  add_files -norecurse $bd_files
-  puts "INFO: Added [llength $bd_files] block design(s)"
-} else {
-  puts "INFO: No block designs found under $BD_DIR"
+# remove any BD already in the project
+set existing_bd [get_files -quiet *.bd]
+set to_add {}
+foreach f $bd_files {
+  if {[lsearch -exact $existing_bd $f] < 0} {
+    lappend to_add $f
+  }
 }
 
-if {[llength $bd_files] > 0} {
-  add_files -norecurse $bd_files
-  puts "INFO: Added [llength $bd_files] block design(s)"
+if {[llength $to_add] > 0} {
+  add_files -norecurse $to_add
+  puts "INFO: Added [llength $to_add] block design(s)"
+} else {
+  puts "INFO: No new block designs to add"
 }
 
 update_compile_order -fileset sources_1
