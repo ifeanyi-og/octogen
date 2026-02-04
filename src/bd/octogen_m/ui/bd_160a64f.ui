@@ -1,27 +1,28 @@
 {
    "ActiveEmotionalView":"Default View",
-   "Default View_ScaleFactor":"0.57571",
-   "Default View_TopLeft":"-439,250",
+   "Default View_ScaleFactor":"0.541543",
+   "Default View_TopLeft":"-264,-135",
    "ExpandedHierarchyInLayout":"",
    "Reduced Jogs_ScaleFactor":"0.6",
    "Reduced Jogs_TopLeft":"0,-70",
    "guistr":"# # String gsaved with Nlview 7.8.0 2024-04-26 e1825d835c VDI=44 GEI=38 GUI=JA:21.0
 #  -string -flagsOSRD
-preplace inst pix_map_0 -pg 1 -lvl 2 -x 120 -y 730 -defaultsOSRD
-preplace inst k_lin_0 -pg 1 -lvl 3 -x 380 -y 220 -defaultsOSRD
-preplace inst fir_filt_0 -pg 1 -lvl 5 -x 960 -y 210 -defaultsOSRD
-preplace inst fft_split_0 -pg 1 -lvl 2 -x 120 -y 510 -swap {1 0 2 3 4} -defaultsOSRD
-preplace inst fft_recomb_0 -pg 1 -lvl 4 -x 650 -y 510 -defaultsOSRD
-preplace inst disp_comp_0 -pg 1 -lvl 4 -x 650 -y 230 -defaultsOSRD
-preplace inst bg_sub_0 -pg 1 -lvl 2 -x 120 -y 230 -defaultsOSRD
-preplace inst clk_wiz_0 -pg 1 -lvl 1 -x -170 -y 230 -swap {0 1 2 4 3} -defaultsOSRD
-preplace netloc bg_sub_0_str_out 1 2 1 N 230
-preplace netloc k_lin_0_str_out 1 3 1 510 220n
-preplace netloc disp_comp_0_str_out 1 4 1 780 220n
-preplace netloc fir_filt_0_str_out 1 1 5 -10 140 NJ 140 NJ 140 NJ 140 1090
-preplace netloc clk_wiz_0_f_clk 1 1 4 -20 160 250 150 520 160 780
-levelinfo -pg 1 -260 -170 120 380 650 960 1110
-pagesize -pg 1 -db -bbox -sgen -260 -240 1110 800
+preplace inst pix_map_0 -pg 1 -lvl 2 -x 330 -y 550 -defaultsOSRD
+preplace inst k_lin_0 -pg 1 -lvl 3 -x 610 -y 110 -defaultsOSRD
+preplace inst fir_filt_0 -pg 1 -lvl 5 -x 1180 -y 110 -defaultsOSRD
+preplace inst fft_split_0 -pg 1 -lvl 2 -x 330 -y 300 -swap {1 0 2 3 4} -defaultsOSRD
+preplace inst fft_recomb_0 -pg 1 -lvl 4 -x 900 -y 310 -defaultsOSRD
+preplace inst disp_comp_0 -pg 1 -lvl 4 -x 900 -y 110 -defaultsOSRD
+preplace inst bg_sub_0 -pg 1 -lvl 2 -x 330 -y 110 -defaultsOSRD
+preplace inst clk_wiz_0 -pg 1 -lvl 1 -x 90 -y 20 -swap {0 1 2 4 3} -defaultsOSRD
+preplace netloc bg_sub_0_str_out 1 2 1 470 110n
+preplace netloc clk_wiz_0_f_clk 1 1 4 180 40 470 40 760 40 1040
+preplace netloc disp_comp_0_str_out 1 4 1 1040 110n
+preplace netloc fft_recomb_0_str_out 1 1 4 190 400 NJ 400 NJ 400 1040
+preplace netloc fir_filt_0_str_out 1 1 5 190 180 NJ 180 NJ 180 NJ 180 1320
+preplace netloc k_lin_0_str_out 1 3 1 750 110n
+levelinfo -pg 1 0 90 330 610 900 1180 1340
+pagesize -pg 1 -db -bbox -sgen 0 -60 1340 620
 "
 }
-
+0

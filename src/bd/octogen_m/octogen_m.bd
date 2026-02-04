@@ -313,13 +313,20 @@
           "disp_comp_0/clk",
           "fir_filt_0/clk",
           "fft_split_0/clk",
-          "fft_recomb_0/clk"
+          "fft_recomb_0/clk",
+          "pix_map_0/clk"
         ]
       },
       "disp_comp_0_str_out": {
         "ports": [
           "disp_comp_0/str_out",
           "fir_filt_0/str_in"
+        ]
+      },
+      "fft_recomb_0_str_out": {
+        "ports": [
+          "fft_recomb_0/str_out",
+          "pix_map_0/str_in"
         ]
       },
       "fir_filt_0_str_out": {

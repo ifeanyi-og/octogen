@@ -1,0 +1,139 @@
+{
+  "design": {
+    "design_info": {
+      "boundary_crc": "0x0",
+      "device": "xc7k325tffg676-2",
+      "name": "multiFFT",
+      "rev_ctrl_bd_flag": "RevCtrlBdOff",
+      "synth_flow_mode": "Hierarchical",
+      "tool_version": "2025.2"
+    },
+    "design_tree": {
+      "xfft_0": "",
+      "xfft_1": "",
+      "xfft_2": ""
+    },
+    "components": {
+      "xfft_0": {
+        "vlnv": "xilinx.com:ip:xfft:9.1",
+        "ip_revision": "15",
+        "xci_name": "multiFFT_xfft_0_0",
+        "xci_path": "ip\\multiFFT_xfft_0_0\\multiFFT_xfft_0_0.xci",
+        "inst_hier_path": "xfft_0",
+        "has_run_ip_tcl": "true",
+        "parameters": {
+          "aclken": {
+            "value": "false"
+          },
+          "data_format": {
+            "value": "floating_point"
+          },
+          "implementation_options": {
+            "value": "pipelined_streaming_io"
+          },
+          "input_width": {
+            "value": "32"
+          },
+          "number_of_stages_using_block_ram_for_data_and_phase_factors": {
+            "value": "2"
+          },
+          "output_ordering": {
+            "value": "natural_order"
+          },
+          "phase_factor_width": {
+            "value": "24"
+          },
+          "super_sample_rates": {
+            "value": "1"
+          },
+          "target_clock_frequency": {
+            "value": "500"
+          },
+          "transform_length": {
+            "value": "512"
+          }
+        }
+      },
+      "xfft_1": {
+        "vlnv": "xilinx.com:ip:xfft:9.1",
+        "ip_revision": "15",
+        "xci_name": "multiFFT_xfft_0_1",
+        "xci_path": "ip\\multiFFT_xfft_0_1\\multiFFT_xfft_0_1.xci",
+        "inst_hier_path": "xfft_1",
+        "has_run_ip_tcl": "true",
+        "parameters": {
+          "aclken": {
+            "value": "false"
+          },
+          "data_format": {
+            "value": "floating_point"
+          },
+          "implementation_options": {
+            "value": "pipelined_streaming_io"
+          },
+          "input_width": {
+            "value": "32"
+          },
+          "number_of_stages_using_block_ram_for_data_and_phase_factors": {
+            "value": "2"
+          },
+          "output_ordering": {
+            "value": "natural_order"
+          },
+          "phase_factor_width": {
+            "value": "24"
+          },
+          "super_sample_rates": {
+            "value": "1"
+          },
+          "target_clock_frequency": {
+            "value": "500"
+          },
+          "transform_length": {
+            "value": "512"
+          }
+        }
+      },
+      "xfft_2": {
+        "vlnv": "xilinx.com:ip:xfft:9.1",
+        "ip_revision": "15",
+        "xci_name": "multiFFT_xfft_0_2",
+        "xci_path": "ip\\multiFFT_xfft_0_2\\multiFFT_xfft_0_2.xci",
+        "inst_hier_path": "xfft_2",
+        "has_run_ip_tcl": "true",
+        "parameters": {
+          "aclken": {
+            "value": "false"
+          },
+          "data_format": {
+            "value": "floating_point"
+          },
+          "implementation_options": {
+            "value": "pipelined_streaming_io"
+          },
+          "input_width": {
+            "value": "32"
+          },
+          "number_of_stages_using_block_ram_for_data_and_phase_factors": {
+            "value": "2"
+          },
+          "output_ordering": {
+            "value": "natural_order"
+          },
+          "phase_factor_width": {
+            "value": "24"
+          },
+          "super_sample_rates": {
+            "value": "1"
+          },
+          "target_clock_frequency": {
+            "value": "500"
+          },
+          "transform_length": {
+            "value": "512"
+          }
+        }
+      }
+    }
+  }
+}
