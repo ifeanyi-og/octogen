@@ -1,0 +1,32 @@
+{
+   "ActiveEmotionalView":"Default View",
+   "Default View_ScaleFactor":"3.07787",
+   "Default View_TopLeft":"421,183",
+   "ExpandedHierarchyInLayout":"",
+   "guistr":"# # String gsaved with Nlview 7.8.0 2024-04-26 e1825d835c VDI=44 GEI=38 GUI=JA:21.0
+#  -string -flagsOSRD
+preplace port m_axis_rxd_0 -pg 1 -lvl 2 -x 690 -y 90 -defaultsOSRD
+preplace port s_axis_txd_0 -pg 1 -lvl 0 -x -150 -y 30 -defaultsOSRD
+preplace port s_axi_0 -pg 1 -lvl 0 -x -150 -y 10 -defaultsOSRD
+preplace port rgmii_0 -pg 1 -lvl 2 -x 690 -y 150 -defaultsOSRD
+preplace port port-id_ref_clk_0 -pg 1 -lvl 0 -x -150 -y 230 -defaultsOSRD
+preplace port port-id_gtx_clk_0 -pg 1 -lvl 0 -x -150 -y 210 -defaultsOSRD
+preplace port port-id_axis_clk_0 -pg 1 -lvl 0 -x -150 -y 110 -defaultsOSRD
+preplace port port-id_s_axi_lite_clk_0 -pg 1 -lvl 0 -x -150 -y 90 -defaultsOSRD
+preplace port port-id_s_axis_txc_tvalid_0 -pg 1 -lvl 0 -x -150 -y 160 -defaultsOSRD
+preplace portBus phy_rst_n_0 -pg 1 -lvl 2 -x 690 -y 210 -defaultsOSRD
+preplace inst axi_ethernet_0 -pg 1 -lvl 1 -x 530 -y 130 -defaultsOSRD
+preplace netloc axi_ethernet_0_phy_rst_n 1 1 1 660 170n
+preplace netloc axis_clk_0_1 1 0 1 -130J 110n
+preplace netloc gtx_clk_0_1 1 0 1 -130J 210n
+preplace netloc ref_clk_0_1 1 0 1 -130J 230n
+preplace netloc s_axi_lite_clk_0_1 1 0 1 -130J 90n
+preplace netloc axi_ethernet_0_m_axis_rxd 1 1 1 660 50n
+preplace netloc axi_ethernet_0_rgmii 1 1 1 660 110n
+preplace netloc s_axi_0_1 1 0 1 -130J 10n
+preplace netloc s_axis_txd_0_1 1 0 1 -130J 30n
+levelinfo -pg 1 -150 530 690
+pagesize -pg 1 -db -bbox -sgen -330 -160 890 630
+"
+}
+0
