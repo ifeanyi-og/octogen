@@ -16,6 +16,17 @@
 *.srcs/sources_1/ip/*/*.xci  # Keep this
 !*.xci                        # Keep XCI files
 
+# Ignore BD-generated synthesis artifacts
+src/bd/*/ip/*/bd_*/
+src/bd/*/ip/*/*.dcp
+src/bd/*/ip/*/*.vhd
+src/bd/*/ip/*/*.xdc
+src/bd/*/ip/*/synth/
+src/bd/*/ip/*/sim/
+
+# Only track the BD file itself
+!src/bd/*/*.bd
+
 # Ignore generated IP artifacts
 *.ip_user_files/
 *.srcs/sources_1/ip/*/synth/

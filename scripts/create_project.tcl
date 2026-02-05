@@ -96,4 +96,3 @@ if {[llength $xci_files] > 0} {
 
 update_compile_order -fileset sources_1
 puts "Created: $PROJ_DIR/$PROJ_NAME.xpr"
-
