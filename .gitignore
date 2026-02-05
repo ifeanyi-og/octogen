@@ -23,6 +23,7 @@ src/bd/*/ip/*/*.vhd
 src/bd/*/ip/*/*.xdc
 src/bd/*/ip/*/synth/
 src/bd/*/ip/*/sim/
+src/bd/*.veo
 
 # Only track the BD file itself
 !src/bd/*/*.bd
