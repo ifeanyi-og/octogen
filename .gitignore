@@ -23,7 +23,6 @@ dfx_runtime
 *.wcfg
 
 # Maybe take out
-*.xci
 *.xml
 *.txt
 
