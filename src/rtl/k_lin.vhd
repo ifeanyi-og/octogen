@@ -9,7 +9,7 @@ entity k_lin is
     COEF_W    : natural := 18;
     FRAC_BITS : natural := 16;   -- if coeffs are Q?.FRAC_BITS (e.g., Q2.16)
     COEF_LAT  : natural := 2;    -- ROM read latency in cycles (you said 2)
-    SAMP_LAT  : natural := 1     -- sample BRAM read latency (adjust as needed)
+    SAMP_LAT  : natural := 3     -- sample BRAM read latency (adjust as needed)
   );
   port (
     clk : in  std_logic;
@@ -32,8 +32,9 @@ architecture rtl of k_lin is
     COEF_REQ,
     COEF_WAIT,
     COEF_LATCH,
-    TAP_REQ,
-    TAP_WAIT,
+    SAMP_REQ,
+    SAMP_WAIT,
+    SAMP_LATCH,
     OUT_PULSE
   );
   signal st : state_t := IDLE;
@@ -50,9 +51,11 @@ architecture rtl of k_lin is
   signal samp_addra : std_logic_vector(ADDR_W-1 downto 0) := (others => '0');
   signal samp_dina  : std_logic_vector(31 downto 0) := (others => '0');
   signal samp_douta : std_logic_vector(31 downto 0); -- unused
-  signal samp_addrb : std_logic_vector(ADDR_W-1 downto 0) := (others => '0');
-  signal samp_doutb : std_logic_vector(31 downto 0);
-
+  signal samp_addrb0, samp_addrb1, samp_addrb2, samp_addrb3 : std_logic_vector(ADDR_W-1 downto 0) := (others => '0');
+  signal samp_doutb0, samp_doutb1, samp_doutb2, samp_doutb3 : std_logic_vector(31 downto 0);
+  -- optional debug/latch regs (not strictly required, but nice)
+  signal x0, x1, x2, x3 : signed(31 downto 0) := (others => '0');
+  
   -- ROMs share same address (coef_addr = out_idx)
   signal coef_addr  : std_logic_vector(ADDR_W-1 downto 0) := (others => '0');
   signal base_dout  : std_logic_vector(ADDR_W-1 downto 0);
@@ -65,11 +68,14 @@ architecture rtl of k_lin is
   signal base_u     : unsigned(ADDR_W-1 downto 0) := (others => '0');
   signal c0, c1, c2, c3 : signed(COEF_W-1 downto 0) := (others => '0');
   
+      
   -- Accumulator
   signal acc        : signed(63 downto 0) := (others => '0');
   
   signal samp_enb : std_logic := '0';
   signal samp_ena : std_logic := '1';
+  
+  signal samp_addr_req : unsigned (ADDR_W-1 downto 0) := (others => '0');
   
   --helper fxns
   function clamp_addr(a : integer) return unsigned is
@@ -175,7 +181,7 @@ architecture rtl of k_lin is
 begin
 
   -- ip instantiations
-  u_sample_bram : klin_sample_bram
+  u_sample_bram_1 : klin_sample_bram
     port map (
       clka   => clk,
       ena    => samp_ena,
@@ -187,9 +193,60 @@ begin
       clkb   => clk,
       enb    => samp_enb,
       web    => (others => '0'),
-      addrb  => samp_addrb,
+      addrb  => samp_addrb0,
       dinb   => (others => '0'),
-      doutb  => samp_doutb
+      doutb  => samp_doutb0
+    );
+    
+    u_sample_bram_2 : klin_sample_bram
+    port map (
+      clka   => clk,
+      ena    => samp_ena,
+      wea    => samp_wea,
+      addra  => samp_addra,
+      dina   => samp_dina,
+      douta  => samp_douta,
+
+      clkb   => clk,
+      enb    => samp_enb,
+      web    => (others => '0'),
+      addrb  => samp_addrb1,
+      dinb   => (others => '0'),
+      doutb  => samp_doutb1
+    );
+    
+    u_sample_bram_3 : klin_sample_bram
+    port map (
+      clka   => clk,
+      ena    => samp_ena,
+      wea    => samp_wea,
+      addra  => samp_addra,
+      dina   => samp_dina,
+      douta  => samp_douta,
+
+      clkb   => clk,
+      enb    => samp_enb,
+      web    => (others => '0'),
+      addrb  => samp_addrb2,
+      dinb   => (others => '0'),
+      doutb  => samp_doutb2
+    );
+    
+    u_sample_bram_4 : klin_sample_bram
+    port map (
+      clka   => clk,
+      ena    => samp_ena,
+      wea    => samp_wea,
+      addra  => samp_addra,
+      dina   => samp_dina,
+      douta  => samp_douta,
+
+      clkb   => clk,
+      enb    => samp_enb,
+      web    => (others => '0'),
+      addrb  => samp_addrb3,
+      dinb   => (others => '0'),
+      doutb  => samp_doutb3
     );
     
     u_base_rom : klin_base_rom
@@ -236,7 +293,7 @@ begin
   process(clk)
     variable x32   : signed(31 downto 0);
     variable coefv : signed(COEF_W-1 downto 0);
-    variable prod  : signed(63 downto 0);
+    variable p0, p1, p2, p3  : signed(63 downto 0);
     variable addr_i: integer;
     variable acc_next : signed (63 downto 0);
   begin
@@ -251,7 +308,10 @@ begin
         samp_wea   <= (others => '0');
         samp_addra <= (others => '0');
         samp_dina  <= (others => '0');
-        samp_addrb <= (others => '0');
+        samp_addrb0 <= (others => '0');
+        samp_addrb1 <= (others => '0');
+        samp_addrb2 <= (others => '0');
+        samp_addrb3 <= (others => '0');
         coef_addr  <= (others => '0');
 
         base_u <= (others => '0');
@@ -318,49 +378,46 @@ begin
             c3 <= signed(c3_dout);
             acc <= (others => '0');
             tap_idx <= 0;
-            st <= TAP_REQ;
-          when TAP_REQ =>
-            -- Drive read address for current tap
-            -- taps use base-1, base, base+1, base+2
-            case tap_idx is
-              when 0 => addr_i := to_integer(base_u) - 1;
-              when 1 => addr_i := to_integer(base_u);
-              when 2 => addr_i := to_integer(base_u) + 1;
-              when others => addr_i := to_integer(base_u) + 2;
-            end case;
-
-            samp_addrb <= std_logic_vector(clamp_addr(addr_i));
+            st <= SAMP_REQ;
+          when SAMP_REQ =>
+             -- taps are base-1, base, base+1, base+2
+            samp_addrb0 <= std_logic_vector(clamp_addr(to_integer(base_u) - 1));
+            samp_addrb1 <= std_logic_vector(clamp_addr(to_integer(base_u)));
+            samp_addrb2 <= std_logic_vector(clamp_addr(to_integer(base_u) + 1));
+            samp_addrb3 <= std_logic_vector(clamp_addr(to_integer(base_u) + 2));
+            
+            -- wait for BRAM latency (use SAMP_LAT, not -1, since we latch after wait)
             if SAMP_LAT = 0 then
-                wait_cnt <=0;
+              wait_cnt <= 0;
             else
-                wait_cnt <= SAMP_LAT - 1;
+              wait_cnt <= SAMP_LAT;
             end if;
-            st         <= TAP_WAIT;
-
-          when TAP_WAIT =>
+            
+            st <= SAMP_WAIT;
+          when SAMP_WAIT =>
             if wait_cnt = 0 then
-              -- Consume sample BRAM output for this tap and accumulate
-              x32   := signed(samp_doutb);
-              coefv := coef_sel(tap_idx, c0, c1, c2, c3);
-
-              -- Multiply then scale down by FRAC_BITS (fixed-point)
-              -- prod = (x32 * coefv) >> FRAC_BITS
-              prod := resize( shift_right( resize(x32,128) * resize(coefv,128), FRAC_BITS ), 64);
-              acc_next := acc + prod;
-              acc <= acc_next;
-              if tap_idx = 3 then
-                str_out <= sat32(acc_next);
-                str_out_valid <= '1';
-                st <= OUT_PULSE;
-              else
-                tap_idx <= tap_idx + 1;
-                st <= TAP_REQ;
-              end if;
-
+              st <= SAMP_LATCH;          -- <-- new stage
             else
               wait_cnt <= wait_cnt - 1;
             end if;
-
+          when SAMP_LATCH =>
+            --latch for debug visibility
+            x0 <= signed(samp_doutb0);
+            x1 <= signed(samp_doutb1);
+            x2 <= signed(samp_doutb2);
+            x3 <= signed(samp_doutb3);
+            -- compute sum-of-products (scaled) p_i = (x_i * c_i) >> FRAC_BITS
+            p0 := resize(shift_right(resize(signed(samp_doutb0),128) * resize(c0,128), FRAC_BITS), 64);
+            p1 := resize(shift_right(resize(signed(samp_doutb1),128) * resize(c1,128), FRAC_BITS), 64);
+            p2 := resize(shift_right(resize(signed(samp_doutb2),128) * resize(c2,128), FRAC_BITS), 64);
+            p3 := resize(shift_right(resize(signed(samp_doutb3),128) * resize(c3,128), FRAC_BITS), 64);
+            
+            acc_next := p0 + p1 + p2 + p3;
+            
+            str_out <= sat32 (acc_next);
+            str_out_valid <= '1';
+            
+            st <= OUT_PULSE;
           when OUT_PULSE =>
             if out_idx = to_unsigned(ASCAN_LEN-1, ADDR_W) then
               st <= IDLE;
