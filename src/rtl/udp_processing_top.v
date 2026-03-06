@@ -23,28 +23,75 @@ module udp_processing_top (
     output wire [7:0]  udp_tx_tdata,
     output wire        udp_tx_tvalid,
     input  wire        udp_tx_tready,
-    output wire        udp_tx_tlast
+    output wire        udp_tx_tlast,
+    
+    // DEBUG: Module debug outputs
+    output wire [1:0]  debug_parser_state,
+    output wire [1:0]  debug_parser_byte_count,
+    output wire [6:0]  debug_parser_sample_count,
+    output wire        debug_parser_hdr_valid,
+    output wire        debug_parser_sample_tvalid,
+    output wire        debug_parser_sample_tready,
+    output wire [7:0]  debug_parser_assembled_header_byte0,
+    output wire [1:0]  debug_s2b_byte_ptr,
+    output wire [31:0] debug_s2b_sample_hold,
+    output wire        debug_udp_tx_tvalid,
+    output wire        debug_udp_tx_tlast,
+    output wire        debug_parser_sample_tlast,
+    output wire        debug_dsp_output_tlast,
+    output wire        debug_s2b_axis_tlast
 );
 
     // ========================================================================
-    // Stage 1: Parse incoming UDP packet into header + real/imag samples
+    // INTERNAL WIRES - Parser
     // ========================================================================
-    wire        pkt_hdr_valid;
-    wire        pkt_hdr_ready;
-    wire [31:0] pkt_hdr_type;
+    wire        parser_hdr_valid;
+    wire        parser_hdr_ready;
+    wire [3:0]  parser_hdr_type;
+    wire [3:0]  parser_hdr_batch;
+    wire [23:0] parser_hdr_seq;
 
-    wire [31:0] parsed_real_tdata;
-    wire        parsed_real_tvalid;
-    wire        parsed_real_tready;
-    wire        parsed_real_tlast;
-    wire [9:0]  parsed_real_count;
+    wire [31:0] parser_sample_tdata;
+    wire        parser_sample_tvalid;
+    wire        parser_sample_tready;
+    wire        parser_sample_tlast;
+    wire [5:0]  parser_sample_index;
+    
+    wire [1:0]  parser_debug_state;
+    wire [1:0]  parser_debug_byte_count;
+    wire [6:0]  parser_debug_sample_count;
+    wire [7:0]  parser_debug_assembled_header_byte0;
 
-    wire [31:0] parsed_imag_tdata;
-    wire        parsed_imag_tvalid;
-    wire        parsed_imag_tready;
-    wire        parsed_imag_tlast;
-    wire [9:0]  parsed_imag_count;
+    // ========================================================================
+    // INTERNAL WIRES - DSP Chain (placeholder)
+    // ========================================================================
+    wire [31:0] dsp_output_tdata;
+    wire        dsp_output_tvalid;
+    wire        dsp_output_tready;
+    wire        dsp_output_tlast;
 
+    // ========================================================================
+    // INTERNAL WIRES - sample_to_byte
+    // ========================================================================
+    wire [7:0]  s2b_axis_tdata;
+    wire        s2b_axis_tvalid;
+    wire        s2b_axis_tready;
+    wire        s2b_axis_tlast;
+    
+    wire [1:0]  s2b_debug_byte_ptr;
+    wire [31:0] s2b_debug_sample_hold;
+
+    // ========================================================================
+    // INTERNAL WIRES - Response routing and header handshake
+    // ========================================================================
+    reg [31:0] stored_src_ip;
+    reg [15:0] stored_src_port;
+    reg [15:0] stored_dest_port;
+    reg        hdr_sent;
+
+    // ========================================================================
+    // STAGE 1: Parse packet header and extract interleaved samples
+    // ========================================================================
     packet_header_parser hdr_parser (
         .clk(clk),
         .rst(rst),
@@ -52,112 +99,117 @@ module udp_processing_top (
         .s_udp_tvalid(udp_rx_tvalid),
         .s_udp_tready(udp_rx_tready),
         .s_udp_tlast(udp_rx_tlast),
-        .hdr_valid(pkt_hdr_valid),
-        .hdr_ready(pkt_hdr_ready),
-        .hdr_type(pkt_hdr_type),
-        .m_real_tdata(parsed_real_tdata),
-        .m_real_tvalid(parsed_real_tvalid),
-        .m_real_tready(parsed_real_tready),
-        .m_real_tlast(parsed_real_tlast),
-        .m_real_count(parsed_real_count),
-        .m_imag_tdata(parsed_imag_tdata),
-        .m_imag_tvalid(parsed_imag_tvalid),
-        .m_imag_tready(parsed_imag_tready),
-        .m_imag_tlast(parsed_imag_tlast),
-        .m_imag_count(parsed_imag_count)
+        .hdr_valid(parser_hdr_valid),
+        .hdr_ready(parser_hdr_ready),
+        .hdr_type(parser_hdr_type),
+        .hdr_batch(parser_hdr_batch),
+        .hdr_seq(parser_hdr_seq),
+        .m_sample_tdata(parser_sample_tdata),
+        .m_sample_tvalid(parser_sample_tvalid),
+        .m_sample_tready(parser_sample_tready),
+        .m_sample_tlast(parser_sample_tlast),
+        .m_sample_index(parser_sample_index),
+        .debug_state(parser_debug_state),
+        .debug_byte_count(parser_debug_byte_count),
+        .debug_sample_count(parser_debug_sample_count),
+        .debug_assembled_header_byte0(parser_debug_assembled_header_byte0)
     );
 
     // ========================================================================
-    // Stage 2: Store header info (IP, port) for response
+    // STAGE 2: Store header info for response routing
     // ========================================================================
-    reg [31:0] stored_src_ip;
-    reg [15:0] stored_src_port;
-    reg [15:0] stored_dest_port;
-    reg [31:0] stored_hdr_type;
+    assign parser_hdr_ready = 1'b1;
+    assign udp_rx_hdr_ready = 1'b1;
 
     always @(posedge clk) begin
         if (rst) begin
             stored_src_ip <= 0;
             stored_src_port <= 0;
             stored_dest_port <= 0;
-            stored_hdr_type <= 0;
         end else if (udp_rx_hdr_valid && udp_rx_hdr_ready) begin
             stored_src_ip <= udp_rx_src_ip;
             stored_src_port <= udp_rx_src_port;
             stored_dest_port <= udp_rx_dest_port;
-        end else if (pkt_hdr_valid && pkt_hdr_ready) begin
-            stored_hdr_type <= pkt_hdr_type;
         end
     end
 
-    assign pkt_hdr_ready = 1'b1;  // Always ready to consume header
-
     // ========================================================================
-    // Stage 3: DSP Chain (placeholder)
-    // Process separate real and imaginary streams
+    // STAGE 3: DSP Chain (PLACEHOLDER - propagate tlast)
     // ========================================================================
-    wire [31:0] dsp_real_tdata;
-    wire        dsp_real_tvalid;
-    wire        dsp_real_tready;
-    wire        dsp_real_tlast;
+    assign parser_sample_tready = dsp_output_tready;
 
-    wire [31:0] dsp_imag_tdata;
-    wire        dsp_imag_tvalid;
-    wire        dsp_imag_tready;
-    wire        dsp_imag_tlast;
-
-    // For now, pass through unchanged
-    // TODO: Insert DSP chain:
-    // parsed_real -> bg_sub -> k_lin -> FFT -> log_scale -> dsp_real
-    // parsed_imag -> [same chain] -> dsp_imag
+    /*
+    assign dsp_output_tdata = 32'h11223344;
+    assign dsp_output_tvalid = 1;
+    assign dsp_output_tlast = parser_sample_tlast; */
     
-    assign dsp_real_tdata = parsed_real_tdata;
-    assign dsp_real_tvalid = parsed_real_tvalid;
-    assign parsed_real_tready = dsp_real_tready;
-    assign dsp_real_tlast = parsed_real_tlast;
-
-    assign dsp_imag_tdata = parsed_imag_tdata;
-    assign dsp_imag_tvalid = parsed_imag_tvalid;
-    assign parsed_imag_tready = dsp_imag_tready;
-    assign dsp_imag_tlast = parsed_imag_tlast;
+    assign dsp_output_tdata = parser_sample_tdata;
+    assign dsp_output_tvalid = parser_sample_tvalid;
+    assign dsp_output_tlast = parser_sample_tlast;  // PROPAGATE TLAST 
 
     // ========================================================================
-    // Stage 4: Convert 32-bit real/imag samples back to byte stream
+    // STAGE 4: Convert samples back to byte stream (with pipeline flush)
     // ========================================================================
-    wire [7:0]  tx_byte_tdata;
-    wire        tx_byte_tvalid;
-    wire        tx_byte_tready;
-    wire        tx_byte_tlast;
-
     sample_to_byte s2b (
         .clk(clk),
         .rst(rst),
-        .s_real_tdata(dsp_real_tdata),
-        .s_real_tvalid(dsp_real_tvalid),
-        .s_real_tready(dsp_real_tready),
-        .s_real_tlast(dsp_real_tlast),
-        .s_imag_tdata(dsp_imag_tdata),
-        .s_imag_tvalid(dsp_imag_tvalid),
-        .s_imag_tready(dsp_imag_tready),
-        .s_imag_tlast(dsp_imag_tlast),
-        .m_axis_tdata(tx_byte_tdata),
-        .m_axis_tvalid(tx_byte_tvalid),
-        .m_axis_tready(tx_byte_tready),
-        .m_axis_tlast(tx_byte_tlast)
+        .s_sample_tdata(dsp_output_tdata),
+        .s_sample_tvalid(dsp_output_tvalid),
+        .s_sample_tready(dsp_output_tready),
+        .s_sample_tlast(dsp_output_tlast),
+        .m_axis_tdata(s2b_axis_tdata),
+        .m_axis_tvalid(s2b_axis_tvalid),
+        .m_axis_tready(s2b_axis_tready),
+        .m_axis_tlast(s2b_axis_tlast),
+        //.parser_hdr_valid(parser_hdr_valid),  // FLUSH SIGNAL
+        .debug_byte_ptr(s2b_debug_byte_ptr),
+        .debug_sample_hold(s2b_debug_sample_hold)
     );
 
     // ========================================================================
-    // Stage 5: Format UDP TX response
+    // STAGE 5: Format UDP TX response with proper header handshake
     // ========================================================================
-    assign udp_tx_hdr_valid = pkt_hdr_valid;
+    always @(posedge clk) begin
+        if (rst) begin
+            hdr_sent <= 0;
+        end else begin
+            if (parser_hdr_valid && udp_tx_hdr_ready) begin
+                hdr_sent <= 1;
+            end
+            if (parser_debug_state == 2'b00) begin
+                hdr_sent <= 0;
+            end
+        end
+    end
+
+    assign udp_tx_hdr_valid = parser_hdr_valid || hdr_sent;
+
     assign udp_tx_dest_ip = stored_src_ip;
-    assign udp_tx_src_port = stored_dest_port;  // Swap source/dest ports
+    assign udp_tx_src_port = stored_dest_port;
     assign udp_tx_dest_port = stored_src_port;
 
-    assign udp_tx_tdata = tx_byte_tdata;
-    assign udp_tx_tvalid = tx_byte_tvalid;
-    assign tx_byte_tready = udp_tx_tready;
-    assign udp_tx_tlast = tx_byte_tlast;
+    assign udp_tx_tdata = s2b_axis_tdata;
+    assign udp_tx_tvalid = s2b_axis_tvalid;
+    assign s2b_axis_tready = udp_tx_tready;
+    assign udp_tx_tlast = s2b_axis_tlast;
+
+    // ========================================================================
+    // DEBUG OUTPUT ASSIGNMENTS - EXPLICIT
+    // ========================================================================
+    assign debug_parser_state = parser_debug_state;
+    assign debug_parser_byte_count = parser_debug_byte_count;
+    assign debug_parser_sample_count = parser_debug_sample_count;
+    assign debug_parser_hdr_valid = parser_hdr_valid;
+    assign debug_parser_sample_tvalid = parser_sample_tvalid;
+    assign debug_parser_sample_tready = parser_sample_tready;
+    assign debug_parser_assembled_header_byte0 = parser_debug_assembled_header_byte0;
+    assign debug_s2b_byte_ptr = s2b_debug_byte_ptr;
+    assign debug_s2b_sample_hold = s2b_debug_sample_hold;
+    assign debug_udp_tx_tvalid = udp_tx_tvalid;
+    assign debug_udp_tx_tlast = udp_tx_tlast;
+    assign debug_parser_sample_tlast = parser_sample_tlast;
+    assign debug_dsp_output_tlast = dsp_output_tlast;
+    assign debug_s2b_axis_tlast = s2b_axis_tlast;
 
 endmodule
 

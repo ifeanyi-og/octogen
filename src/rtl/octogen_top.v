@@ -13,7 +13,7 @@ module octogen_top (
     // 50MHz input from crystal osc
     input  wire        osc_clk,
     
-    // Debug LEDs and buttons (controlled here)
+    // Debug LEDs and buttons (buttons are active LOW)
     output reg  [7:0]  my_led,
     input  wire [3:0]  my_btns,
 
@@ -22,7 +22,7 @@ module octogen_top (
 );
 
     // ========================================================================
-    // Clock Generation (centralized in octogen_top)
+    // Clock Generation (centralized)
     // ========================================================================
     wire clk_100mhz;
     wire clk_125mhz;
@@ -65,7 +65,22 @@ module octogen_top (
     wire        udp_tx_tlast;
 
     // ========================================================================
-    // Ethernet I/O Module
+    // DEBUG wires from udp_processing_top
+    // ========================================================================
+    wire [1:0]  debug_parser_state;
+    wire [1:0]  debug_parser_byte_count;
+    wire [6:0]  debug_parser_sample_count;
+    wire        debug_parser_hdr_valid;
+    wire        debug_parser_sample_tvalid;
+    wire        debug_parser_sample_tready;
+    wire [7:0]  debug_parser_assembled_header_byte0;
+    wire [1:0]  debug_s2b_byte_ptr;
+    wire [31:0] debug_s2b_sample_hold;
+    wire        debug_udp_tx_tvalid;
+    wire        debug_udp_tx_tlast;
+
+    // ========================================================================
+    // INSTANTIATE: Ethernet I/O Module
     // ========================================================================
     eth_io_top eth_io (
         .reset_btn(reset_btn),
@@ -77,14 +92,10 @@ module octogen_top (
         .rgmii_txc(rgmii_txc),
         .osc_clk(osc_clk),
         .phy_rst_n(phy_rst_n),
-
-        // Clock inputs (generated here in octogen_top)
         .clk_100mhz(clk_100mhz),
         .clk_125mhz(clk_125mhz),
         .clk_200mhz(clk_200mhz),
         .axis_reset(axis_reset),
-
-        // UDP RX outputs
         .udp_rx_hdr_valid(udp_rx_hdr_valid),
         .udp_rx_hdr_ready(udp_rx_hdr_ready),
         .udp_rx_src_ip(udp_rx_src_ip),
@@ -94,8 +105,6 @@ module octogen_top (
         .udp_rx_tvalid(udp_rx_tvalid),
         .udp_rx_tready(udp_rx_tready),
         .udp_rx_tlast(udp_rx_tlast),
-
-        // UDP TX inputs
         .udp_tx_hdr_valid(udp_tx_hdr_valid),
         .udp_tx_hdr_ready(udp_tx_hdr_ready),
         .udp_tx_dest_ip(udp_tx_dest_ip),
@@ -108,12 +117,11 @@ module octogen_top (
     );
 
     // ========================================================================
-    // UDP Processing & DSP Module
+    // INSTANTIATE: UDP Processing with packet parsing
     // ========================================================================
     udp_processing_top udp_proc (
         .clk(clk_100mhz),
         .rst(axis_reset),
-
         .udp_rx_hdr_valid(udp_rx_hdr_valid),
         .udp_rx_hdr_ready(udp_rx_hdr_ready),
         .udp_rx_src_ip(udp_rx_src_ip),
@@ -123,7 +131,6 @@ module octogen_top (
         .udp_rx_tvalid(udp_rx_tvalid),
         .udp_rx_tready(udp_rx_tready),
         .udp_rx_tlast(udp_rx_tlast),
-
         .udp_tx_hdr_valid(udp_tx_hdr_valid),
         .udp_tx_hdr_ready(udp_tx_hdr_ready),
         .udp_tx_dest_ip(udp_tx_dest_ip),
@@ -132,31 +139,90 @@ module octogen_top (
         .udp_tx_tdata(udp_tx_tdata),
         .udp_tx_tvalid(udp_tx_tvalid),
         .udp_tx_tready(udp_tx_tready),
-        .udp_tx_tlast(udp_tx_tlast)
+        .udp_tx_tlast(udp_tx_tlast),
+        .debug_parser_state(debug_parser_state),
+        .debug_parser_byte_count(debug_parser_byte_count),
+        .debug_parser_sample_count(debug_parser_sample_count),
+        .debug_parser_hdr_valid(debug_parser_hdr_valid),
+        .debug_parser_sample_tvalid(debug_parser_sample_tvalid),
+        .debug_parser_sample_tready(debug_parser_sample_tready),
+        .debug_parser_assembled_header_byte0(debug_parser_assembled_header_byte0),
+        .debug_s2b_byte_ptr(debug_s2b_byte_ptr),
+        .debug_s2b_sample_hold(debug_s2b_sample_hold),
+        .debug_udp_tx_tvalid(debug_udp_tx_tvalid),
+        .debug_udp_tx_tlast(debug_udp_tx_tlast)
     );
 
     // ========================================================================
-    // LED Debug Control (easily modifiable)
+    // LED DEBUG CONTROL - Button-controlled mode selection (buttons active LOW)
     // ========================================================================
-    reg [7:0] pkt_count = 0;
+    // my_btns[0] = 0 → Mode 0 (Parser internals)
+    // my_btns[1] = 0 → Mode 1 (Sample counting)
+    // my_btns[2] = 0 → Mode 2 (TX path)
+    // my_btns[3] = 0 → Mode 3 (Byte conversion)
+    
+    reg [1:0] debug_mode;
+    
+    // Direct mode selection from buttons (active LOW)
+    always @(*) begin
+        if (!my_btns[0])
+            debug_mode = 2'b00;
+        else if (!my_btns[1])
+            debug_mode = 2'b01;
+        else if (!my_btns[2])
+            debug_mode = 2'b10;
+        else if (!my_btns[3])
+            debug_mode = 2'b11;
+        else
+            debug_mode = 2'b00;  // Default to mode 0 if no button pressed
+    end
 
     always @(posedge clk_100mhz) begin
         if (axis_reset) begin
-            pkt_count <= 0;
             my_led <= 0;
         end else begin
-            // Count received packets
-            if (udp_rx_tlast && udp_rx_tvalid && udp_rx_tready)
-                pkt_count <= pkt_count + 1;
 
-            // LED assignments (easily customizable)
-            my_led[7:4] <= pkt_count[3:0];                    // [7:4] = packet counter
-            my_led[0]   <= pll_locked;                        // [0] = PLL locked indicator
-            my_led[1]   <= phy_rst_n;                         // [1] = PHY out of reset
-            my_led[2]   <= udp_rx_tvalid;                     // [2] = UDP RX activity
-            my_led[3]   <= udp_tx_tvalid;                     // [3] = UDP TX activity
+            // ========== LED ASSIGNMENT BY MODE ==========
+            case (debug_mode)
+                
+                2'b00: begin  // MODE 0: Parser internals - see FSM and flow
+                    my_led[1:0] <= debug_parser_state;           // FSM state (00=IDLE, 01=HEADER, 10=SAMPLES)
+                    my_led[2]   <= debug_parser_hdr_valid;       // Header pulsing?
+                    my_led[3]   <= debug_parser_sample_tvalid;   // Samples outputting?
+                    my_led[4]   <= debug_parser_sample_tready;   // Downstream accepting?
+                    my_led[5]   <= udp_rx_tvalid;                // RX data arriving?
+                    my_led[6]   <= udp_tx_tvalid;                // TX data leaving?
+                    my_led[7]   <= pll_locked;
+                end
+                
+                2'b01: begin  // MODE 1: Sample counting (0-63)
+                    my_led[5:0] <= debug_parser_sample_count[5:0];  // Sample count (0-63)
+                    my_led[6]   <= (debug_parser_sample_count == 7'd63);  // Last sample?
+                    my_led[7]   <= pll_locked;
+                end
+                
+                2'b10: begin  // MODE 2: TX path - is response being sent?
+                    my_led[1:0] <= debug_parser_state;           // Parser FSM state
+                    my_led[2]   <= debug_udp_tx_tvalid;          // TX data valid?
+                    my_led[3]   <= debug_udp_tx_tlast;           // TX packet end?
+                    my_led[4]   <= debug_parser_sample_tvalid;   // Parser outputting?
+                    my_led[5]   <= udp_tx_tready;                // eth_io_top ready to TX?
+                    my_led[6]   <= debug_parser_hdr_valid;       // Header pulsing?
+                    my_led[7]   <= pll_locked;
+                end
+                
+                2'b11: begin  // MODE 3: Byte conversion status
+                    my_led[1:0] <= debug_parser_state;           // Parser FSM state
+                    my_led[2]   <= (debug_s2b_byte_ptr == 2'b00);  // At first byte?
+                    my_led[3]   <= (debug_s2b_byte_ptr == 2'b11);  // At last byte?
+                    my_led[4]   <= debug_udp_tx_tvalid;          // TX bytes flowing?
+                    my_led[5]   <= debug_parser_sample_tvalid;   // Samples arriving to s2b?
+                    my_led[6]   <= debug_parser_sample_tready;   // s2b accepting?
+                    my_led[7]   <= pll_locked;
+                end
+            endcase
+            // ========== END LED ASSIGNMENT ==========
         end
     end
 
 endmodule
-

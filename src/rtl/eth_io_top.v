@@ -15,10 +15,9 @@
 // 
 // Revision:
 // Revision 0.01 - File Created
-// Additional Comments:
+// Additional Comments: Handler calls Alex F's libraries
 // 
 //////////////////////////////////////////////////////////////////////////////////
-
 
 module eth_io_top (
     // Reset button (active high)
@@ -65,6 +64,9 @@ module eth_io_top (
     input  wire       udp_tx_tlast,
     output wire       udp_tx_hdr_ready,
     output wire       udp_tx_tready
+    
+    //output wire[7:0]  debug_rx_byte_count,
+    //output wire[7:0]  debug_spares
 );
 
     // ========================================================================
@@ -110,7 +112,11 @@ module eth_io_top (
         .CLOCK_INPUT_STYLE("BUFG"),
         .USE_CLK90("FALSE"),
         .ENABLE_PADDING(1),
-        .MIN_FRAME_LENGTH(64)
+        .MIN_FRAME_LENGTH(64),
+        .TX_FIFO_DEPTH(4096),
+        .TX_FRAME_FIFO(1),
+        .RX_FIFO_DEPTH(4096),
+        .RX_FRAME_FIFO(1)
     ) mac_inst (
         .gtx_clk(clk_125mhz),
         .gtx_clk90(1'b0),
@@ -243,6 +249,30 @@ module eth_io_top (
     localparam [31:0] GATEWAY_IP  = {8'd192, 8'd168, 8'd10, 8'd1};
     localparam [31:0] SUBNET_MASK = {8'd255, 8'd255, 8'd255, 8'd0};
 
+    // Internal UDP RX/TX wires (matching old working code)
+    wire        udp_rx_hdr_valid_int;
+    wire        udp_rx_hdr_ready_int;
+    wire [31:0] udp_rx_src_ip_int;
+    wire [15:0] udp_rx_src_port_int;
+    wire [15:0] udp_rx_dest_port_int;
+    wire [7:0]  udp_rx_tdata_int;
+    wire        udp_rx_tvalid_int;
+    wire        udp_rx_tready_int;
+    wire        udp_rx_tlast_int;
+
+    wire        udp_tx_hdr_valid_int;
+    wire        udp_tx_hdr_ready_int;
+    wire [31:0] udp_tx_dest_ip_int;
+    wire [15:0] udp_tx_src_port_int;
+    wire [15:0] udp_tx_dest_port_int;
+    wire [7:0]  udp_tx_tdata_int;
+    wire        udp_tx_tvalid_int;
+    wire        udp_tx_tready_int;
+    wire        udp_tx_tlast_int;
+    
+    wire        debug1;
+    wire        debug2;
+
     udp_complete udp_inst (
         .clk(clk_100mhz),
         .rst(axis_reset),
@@ -315,26 +345,26 @@ module eth_io_top (
         .m_ip_payload_axis_tuser(),
 
         // UDP TX (from udp_processing_top)
-        .s_udp_hdr_valid(udp_tx_hdr_valid),
-        .s_udp_hdr_ready(udp_tx_hdr_ready),
+        .s_udp_hdr_valid(udp_tx_hdr_valid_int),
+        .s_udp_hdr_ready(udp_tx_hdr_ready_int),
         .s_udp_ip_dscp(6'd0),
         .s_udp_ip_ecn(2'd0),
         .s_udp_ip_ttl(8'd64),
         .s_udp_ip_source_ip(LOCAL_IP),
-        .s_udp_ip_dest_ip(udp_tx_dest_ip),
-        .s_udp_source_port(udp_tx_src_port),
-        .s_udp_dest_port(udp_tx_dest_port),
-        .s_udp_length(16'd0),
+        .s_udp_ip_dest_ip(udp_tx_dest_ip_int),
+        .s_udp_source_port(udp_tx_src_port_int),
+        .s_udp_dest_port(udp_tx_dest_port_int),
+        .s_udp_length(16'd256), 
         .s_udp_checksum(16'd0),
-        .s_udp_payload_axis_tdata(udp_tx_tdata),
-        .s_udp_payload_axis_tvalid(udp_tx_tvalid),
-        .s_udp_payload_axis_tready(udp_tx_tready),
-        .s_udp_payload_axis_tlast(udp_tx_tlast),
+        .s_udp_payload_axis_tdata(udp_tx_tdata_int),
+        .s_udp_payload_axis_tvalid(udp_tx_tvalid_int),
+        .s_udp_payload_axis_tready(udp_tx_tready_int),
+        .s_udp_payload_axis_tlast(udp_tx_tlast_int),
         .s_udp_payload_axis_tuser(1'b0),
 
-        // UDP RX (to udp_processing_top)
-        .m_udp_hdr_valid(udp_rx_hdr_valid),
-        .m_udp_hdr_ready(udp_rx_hdr_ready),
+        // UDP RX (to udp_processing_top) - CRITICAL: internal wires
+        .m_udp_hdr_valid(udp_rx_hdr_valid_int),
+        .m_udp_hdr_ready(udp_rx_hdr_ready_int),
         .m_udp_eth_dest_mac(),
         .m_udp_eth_src_mac(),
         .m_udp_eth_type(),
@@ -349,16 +379,16 @@ module eth_io_top (
         .m_udp_ip_ttl(),
         .m_udp_ip_protocol(),
         .m_udp_ip_header_checksum(),
-        .m_udp_ip_source_ip(udp_rx_src_ip),
+        .m_udp_ip_source_ip(udp_rx_src_ip_int),
         .m_udp_ip_dest_ip(),
-        .m_udp_source_port(udp_rx_src_port),
-        .m_udp_dest_port(udp_rx_dest_port),
+        .m_udp_source_port(udp_rx_src_port_int),
+        .m_udp_dest_port(udp_rx_dest_port_int),
         .m_udp_length(),
         .m_udp_checksum(),
-        .m_udp_payload_axis_tdata(udp_rx_tdata),
-        .m_udp_payload_axis_tvalid(udp_rx_tvalid),
-        .m_udp_payload_axis_tready(udp_rx_tready),
-        .m_udp_payload_axis_tlast(udp_rx_tlast),
+        .m_udp_payload_axis_tdata(udp_rx_tdata_int),
+        .m_udp_payload_axis_tvalid(udp_rx_tvalid_int),
+        .m_udp_payload_axis_tready(udp_rx_tready_int),
+        .m_udp_payload_axis_tlast(udp_rx_tlast_int),  // ← DRIVES INTERNAL WIRE
         .m_udp_payload_axis_tuser(),
 
         // Status
@@ -384,5 +414,62 @@ module eth_io_top (
         .clear_arp_cache(1'b0)
     );
 
-endmodule
+    // ========================================================================
+    // Output port assignments (internal wires -> output ports)
+    // This matches the old working code structure exactly
+    // ========================================================================
+    assign udp_rx_hdr_valid = udp_rx_hdr_valid_int;
+    assign udp_rx_src_ip    = udp_rx_src_ip_int;
+    assign udp_rx_src_port  = udp_rx_src_port_int;
+    assign udp_rx_dest_port = udp_rx_dest_port_int;
+    assign udp_rx_tdata     = udp_rx_tdata_int;
+    assign udp_rx_tvalid    = udp_rx_tvalid_int;
+    assign udp_rx_tlast     = udp_rx_tlast_int;  // ← EXPLICIT ASSIGNMENT FROM INTERNAL WIRE
+    assign udp_rx_hdr_ready_int = udp_rx_hdr_ready;
+    assign udp_rx_tready_int    = udp_rx_tready;
 
+    // UDP TX
+    assign udp_tx_hdr_valid_int = udp_tx_hdr_valid;
+    assign udp_tx_dest_ip_int   = udp_tx_dest_ip;
+    assign udp_tx_src_port_int  = udp_tx_src_port;
+    assign udp_tx_dest_port_int = udp_tx_dest_port;
+    assign udp_tx_tdata_int     = udp_tx_tdata;
+    assign udp_tx_tvalid_int    = udp_tx_tvalid;
+    assign udp_tx_tlast_int     = udp_tx_tlast;
+    assign udp_tx_hdr_ready     = udp_tx_hdr_ready_int;
+    assign udp_tx_tready        = udp_tx_tready_int;
+
+// ========================================================================
+// DEBUG: Capture byte count when udp_rx_tlast pulses
+// ========================================================================
+reg [15:0] rx_byte_counter;
+reg [15:0] tlast_byte_count;  // Captured value when tlast pulses
+reg        prev_udp_rx_tlast;
+
+always @(posedge clk_100mhz) begin
+    if (axis_reset) begin
+        rx_byte_counter <= 0;
+        tlast_byte_count <= 0;
+        prev_udp_rx_tlast <= 0;
+    end else begin
+        // Count every byte that flows on UDP RX payload
+        if (udp_rx_tvalid_int && udp_rx_tready_int) begin
+            rx_byte_counter <= rx_byte_counter + 1;
+        end
+        
+        // Detect rising edge of udp_rx_tlast
+        prev_udp_rx_tlast <= udp_rx_tlast_int;
+        if (udp_rx_tlast_int && !prev_udp_rx_tlast) begin
+            // tlast just pulsed - capture the byte count AT THIS MOMENT
+            tlast_byte_count <= rx_byte_counter;
+            // Also reset counter for next packet
+            rx_byte_counter <= 0;
+        end
+    end
+end
+
+// Output to top level for LED display
+// assign debug_rx_byte_count = tlast_byte_count[15:8];
+// output wire [15:0] debug_rx_byte_counter = rx_byte_counter;
+
+endmodule
