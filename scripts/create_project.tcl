@@ -17,6 +17,10 @@ set IP_DIR    [file normalize "./src/ip"]
 file mkdir $PROJ_DIR
 create_project $PROJ_NAME $PROJ_DIR -part $PART -force
 
+# Put all generated IP outputs under the local build folder
+set_property ip_output_repo [file normalize "$PROJ_DIR/ip_output_repo"] [current_project]
+set_property ip_cache_permissions {read write} [current_project]
+
 # Ensure this project is PART-based (not BOARD-based)
 if {[catch {get_property board_part [current_project]} bp] == 0} {
   set_property board_part {} [current_project]
@@ -69,16 +73,23 @@ if {[file exists $IP_DIR]} {
 }
 
 if {[llength $ip_files] > 0} {
-  import_ip -files $ip_files
-  puts "INFO: Imported [llength $ip_files] IP core(s) (.xci)"
+  add_files -norecurse $ip_files
+  read_ip $ip_files
+  update_ip_catalog
 
-  # Generate targets so batch mode has deterministic IP outputs
-  set ips [get_ips -quiet]
+  # Upgrade any stale IP and regenerate outputs
+  set ips [get_ips -quiet *]
   if {[llength $ips] > 0} {
+    upgrade_ip $ips
+
+    # IMPORTANT: regenerate all targets
     generate_target all $ips
+
+    # Export user files into build dir (not repo)
     export_ip_user_files -of_objects $ips -no_script -sync -force -quiet
-    puts "INFO: Generated output products for [llength $ips] IP(s)"
   }
+
+  puts "INFO: Added and regenerated [llength $ip_files] XCI(s)"
 } else {
   puts "INFO: No .xci IP files found under $IP_DIR"
 }
@@ -104,6 +115,7 @@ if {[llength $to_add] > 0} {
 } else {
   puts "INFO: No new block designs to add"
 }
+
 
 # ---- Add Testbenches to Simulation Sources (sim_1) ----
 set tb_files {}

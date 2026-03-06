@@ -13,14 +13,14 @@ function write_bg_coe(bg, outFile)
     if ~exist(memInitDir, 'dir')
         mkdir(memInitDir);
     end
-    outFile = fullfile(memInitDir, 'bg_496.coe');
-
-    DEPTH = 512;
-    ASCAN_LEN = 496;
-
     if nargin < 2
         outFile = 'bg_496.coe';
     end
+    outFile = fullfile(memInitDir, outFile);
+
+    DEPTH = 512;
+    ASCAN_LEN = 512;
+
 
     bg = bg(:); % column
 
@@ -61,5 +61,8 @@ end
 
 % rng("default");
 % bg=100*randn(496, 1);
-bg = int32(0:495);
-write_bg_coe(bg, 'bg_496.coe');
+%bg = int32(0:495);
+%bg=ones(512, 1);
+bg=zeros(512,1);
+%bg=131071 * ones(512,1);
+write_bg_coe(bg, 'disp_sin_lut.coe');
