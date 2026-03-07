@@ -75,3 +75,5 @@ set_property DRIVE 12 [get_ports {my_led[3]}]
 set_property DRIVE 12 [get_ports {my_led[2]}]
 set_property DRIVE 12 [get_ports {my_led[1]}]
 set_property DRIVE 12 [get_ports {my_led[0]}]
+
+# set_property CLOCK_DOMAIN clk_100mhz [get_debug_cores dbg_hub]

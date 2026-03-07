@@ -1,84 +1,97 @@
 
+/*
+ * sample_to_byte.v
+ *
+ * Converts 32-bit samples to 8-bit byte stream (big-endian MSB first)
+ *
+ * FIXES:
+ * - Prevents sample overwrite during final byte
+ * - Correct tlast timing
+ * - Proper AXI-stream handshake behavior
+ * - Safe under backpressure
+ */
+
+
 module sample_to_byte (
     input  wire        clk,
     input  wire        rst,
-
-    // 32-bit sample input (from DSP or parser)
+    
+    // 32-bit sample input
     input  wire [31:0] s_sample_tdata,
     input  wire        s_sample_tvalid,
-    output wire        s_sample_tready,
+    output reg         s_sample_tready,
     input  wire        s_sample_tlast,
-
-    // Byte stream output (to UDP TX)
+    
+    // Byte stream output
     output wire [7:0]  m_axis_tdata,
     output wire        m_axis_tvalid,
     input  wire        m_axis_tready,
-    output wire        m_axis_tlast,
-    
-    // DEBUG: byte pointer and hold register
-    output wire [1:0]  debug_byte_ptr,
-    output wire [31:0] debug_sample_hold
+    output wire        m_axis_tlast
 );
 
-    reg [1:0]  byte_ptr;
     reg [31:0] sample_hold;
+    reg [1:0]  byte_ptr;
+    reg        sending;
     reg        last_flag;
-    reg        sending;  // Flag: currently sending a sample
+    
+    reg [7:0] byte_out;
 
     // ========================================================================
-    // Output Logic - Explicit Assignments
+    // Combinatorial: Extract current byte from sample_hold
     // ========================================================================
-    // Extract byte at position byte_ptr (big-endian MSB first)
-    assign m_axis_tdata = sample_hold[(3 - byte_ptr) * 8 +: 8];
-    
-    // Only valid when actively sending a sample
+    always @(*) begin
+        case(byte_ptr)
+            2'd0: byte_out = sample_hold[31:24];
+            2'd1: byte_out = sample_hold[23:16];
+            2'd2: byte_out = sample_hold[15:8];
+            2'd3: byte_out = sample_hold[7:0];
+            default: byte_out = 8'h00;
+        endcase
+    end
+
+    // ========================================================================
+    // Output assignments
+    // ========================================================================
+    assign m_axis_tdata  = byte_out;
     assign m_axis_tvalid = sending;
+    assign m_axis_tlast  = sending && (byte_ptr == 2'd3) && last_flag;
     
-    // tlast only at last byte (byte_ptr==3) of last sample (last_flag==1)
-    assign m_axis_tlast = (byte_ptr == 2'b11) && last_flag && m_axis_tvalid && m_axis_tready;
-    
-    // Ready to accept new sample only when NOT currently sending
-    assign s_sample_tready = !sending;
-    
-    // DEBUG outputs
-    assign debug_byte_ptr = byte_ptr;
-    assign debug_sample_hold = sample_hold;
+    // Ready when not currently sending
+    always @(*) begin
+        s_sample_tready = !sending;
+    end
 
     // ========================================================================
-    // FSM: Load sample when ready, send bytes one at a time
-    // NO FLUSH - Parser handles alignment via s_udp_tlast resets
+    // Sequential logic
     // ========================================================================
     always @(posedge clk) begin
         if (rst) begin
-            byte_ptr <= 0;
-            sending <= 0;
+            sending     <= 0;
+            byte_ptr    <= 0;
             sample_hold <= 0;
-            last_flag <= 0;
-        end else begin
-            
-            // ===== STATE 1: Wait for sample and load it =====
+            last_flag   <= 0;
+        end
+        else begin
+            // Load new sample when not sending and input is valid
             if (!sending && s_sample_tvalid) begin
-                // New sample arrived and we're not sending
                 sample_hold <= s_sample_tdata;
-                last_flag <= s_sample_tlast;
-                sending <= 1;
-                byte_ptr <= 0;
+                last_flag   <= s_sample_tlast;
+                byte_ptr    <= 0;
+                sending     <= 1;
             end
-            
-            // ===== STATE 2: Send bytes one at a time =====
-            if (sending && m_axis_tvalid && m_axis_tready) begin
-                // Output accepted, move to next byte
-                byte_ptr <= byte_ptr + 1;
-                
-                // After sending 4th byte (byte_ptr was 3), done with this sample
-                if (byte_ptr == 2'b11) begin
-                    sending <= 0;
-                    // Ready for next sample
+            // Transmit bytes when sending and downstream is ready
+            else if (sending && m_axis_tvalid && m_axis_tready) begin
+                if (byte_ptr == 2'd3) begin
+                    // Final byte sent - stop sending
+                    sending  <= 0;
+                    byte_ptr <= 0;
+                end
+                else begin
+                    // Move to next byte
+                    byte_ptr <= byte_ptr + 1;
                 end
             end
-            
         end
     end
 
 endmodule
-
