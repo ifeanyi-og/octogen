@@ -1,21 +1,17 @@
-
+`timescale 1ns / 1ps
 /*
  * octogen_top.v
  *
- * Revised hierarchy:
+ * Clean hierarchy:
  *   octogen_top
- *   ├── eth_io_top
- *   ├── udp_processing_top
- *   └── dsp_core_top
+ *   |── eth_io_top
+ *   |── udp_processing_top
+ *   |── dsp_core_top
  *
  * Notes:
- * - This establishes a clean boundary between transport/application handling
- *   and DSP execution.
- * - udp_processing_top is assumed to expose a DSP-facing streaming interface.
- * - dsp_core_top is assumed to consume one complex sample per cycle and return
- *   one processed complex sample stream.
- * - You will need udp_processing_top and dsp_core_top port lists to match
- *   this top-level wiring.
+ * - eth_io_top handles Ethernet / UDP transport
+ * - udp_processing_top handles application parsing / buffering / packetization
+ * - dsp_core_top handles DSP only
  */
 
 module octogen_top (
@@ -33,7 +29,7 @@ module octogen_top (
 );
 
     // ========================================================================
-    // Clock Generation
+    // Clock generation
     // ========================================================================
     wire clk_100mhz;
     wire clk_125mhz;
@@ -53,7 +49,7 @@ module octogen_top (
     wire axis_reset = ~pll_locked;
 
     // ========================================================================
-    // UDP RX/TX interconnect wires: eth_io_top <-> udp_processing_top
+    // UDP interconnect: eth_io_top <-> udp_processing_top
     // ========================================================================
     wire        udp_rx_hdr_valid;
     wire        udp_rx_hdr_ready;
@@ -70,72 +66,49 @@ module octogen_top (
     wire [31:0] udp_tx_dest_ip;
     wire [15:0] udp_tx_src_port;
     wire [15:0] udp_tx_dest_port;
-    wire [15:0] udp_tx_length;     // added for variable TX packet size
+    wire [15:0] udp_tx_length;
     wire [7:0]  udp_tx_tdata;
     wire        udp_tx_tvalid;
     wire        udp_tx_tready;
     wire        udp_tx_tlast;
 
     // ========================================================================
-    // DSP stream interconnect wires: udp_processing_top <-> dsp_core_top
+    // DSP interconnect: udp_processing_top <-> dsp_core_top
     // ========================================================================
-    // Input stream into DSP
     wire        dsp_in_valid;
     wire        dsp_in_row_start;
     wire [31:0] dsp_in_re;
     wire [31:0] dsp_in_im;
 
-    // Output stream from DSP
     wire        dsp_out_valid;
     wire [31:0] dsp_out_re;
     wire [31:0] dsp_out_im;
 
-    // Optional status wires
-    wire        dsp_busy;
-    wire        dsp_row_done;
+    // ========================================================================
+    // Simple activity counter for LED heartbeat
+    // ========================================================================
+    reg [26:0] activity_counter;
 
-    // ========================================================================
-    // DEBUG wires from udp_processing_top
-    // Keep/remove as needed while refactoring
-    // ========================================================================
-    wire [1:0]  debug_parser_state;
-    wire [1:0]  debug_parser_byte_count;
-    wire [6:0]  debug_parser_sample_count;
-    wire [7:0]  debug_parser_packet_type;
-    wire        debug_parser_valid_packet;
-    wire        debug_parser_hdr_valid;
-    wire        debug_parser_sample_tvalid;
-    wire        debug_parser_sample_tready;
-    wire [1:0]  debug_s2b_byte_ptr;
-    wire [31:0] debug_s2b_sample_hold;
-    wire        debug_udp_tx_tvalid;
-    wire        debug_udp_tx_tlast;
-    wire [31:0] debug_stored_src_ip;
-    wire [15:0] debug_stored_src_port;
-    wire [15:0] debug_stored_dest_port;
-
-    // ========================================================================
-    // Activity counters for diagnostics
-    // ========================================================================
-    reg [26:0] eth_activity_counter;
     always @(posedge clk_100mhz) begin
         if (axis_reset)
-            eth_activity_counter <= 0;
+            activity_counter <= 27'd0;
         else
-            eth_activity_counter <= eth_activity_counter + 1;
+            activity_counter <= activity_counter + 27'd1;
     end
 
     // ========================================================================
-    // INSTANTIATE: Ethernet I/O Module
+    // Ethernet / UDP transport
     // ========================================================================
     eth_io_top eth_io (
         .reset_btn(reset_btn),
+
         .rgmii_rd(rgmii_rd),
         .rgmii_rx_ctl(rgmii_rx_ctl),
         .rgmii_rxc(rgmii_rxc),
         .rgmii_td(rgmii_td),
         .rgmii_tx_ctl(rgmii_tx_ctl),
         .rgmii_txc(rgmii_txc),
+
         .osc_clk(osc_clk),
         .phy_rst_n(phy_rst_n),
         .clk_100mhz(clk_100mhz),
@@ -143,7 +116,6 @@ module octogen_top (
         .clk_200mhz(clk_200mhz),
         .axis_reset(axis_reset),
 
-        // UDP RX toward udp_processing_top
         .udp_rx_hdr_valid(udp_rx_hdr_valid),
         .udp_rx_hdr_ready(udp_rx_hdr_ready),
         .udp_rx_src_ip(udp_rx_src_ip),
@@ -154,13 +126,12 @@ module octogen_top (
         .udp_rx_tready(udp_rx_tready),
         .udp_rx_tlast(udp_rx_tlast),
 
-        // UDP TX from udp_processing_top
         .udp_tx_hdr_valid(udp_tx_hdr_valid),
         .udp_tx_hdr_ready(udp_tx_hdr_ready),
         .udp_tx_dest_ip(udp_tx_dest_ip),
         .udp_tx_src_port(udp_tx_src_port),
         .udp_tx_dest_port(udp_tx_dest_port),
-        .udp_tx_length(udp_tx_length),     // add this port in eth_io_top
+        .udp_tx_length(udp_tx_length),
         .udp_tx_tdata(udp_tx_tdata),
         .udp_tx_tvalid(udp_tx_tvalid),
         .udp_tx_tready(udp_tx_tready),
@@ -168,15 +139,12 @@ module octogen_top (
     );
 
     // ========================================================================
-    // INSTANTIATE: UDP Processing / application-side transport adapter
-    // This module now owns packet parsing, row assembly, buffering,
-    // DSP launch/capture, and response packetization.
+    // Application processing
     // ========================================================================
     udp_processing_top udp_proc (
         .clk(clk_100mhz),
         .rst(axis_reset),
 
-        // UDP RX from eth_io_top
         .udp_rx_hdr_valid(udp_rx_hdr_valid),
         .udp_rx_hdr_ready(udp_rx_hdr_ready),
         .udp_rx_src_ip(udp_rx_src_ip),
@@ -187,7 +155,6 @@ module octogen_top (
         .udp_rx_tready(udp_rx_tready),
         .udp_rx_tlast(udp_rx_tlast),
 
-        // UDP TX to eth_io_top
         .udp_tx_hdr_valid(udp_tx_hdr_valid),
         .udp_tx_hdr_ready(udp_tx_hdr_ready),
         .udp_tx_dest_ip(udp_tx_dest_ip),
@@ -199,81 +166,50 @@ module octogen_top (
         .udp_tx_tready(udp_tx_tready),
         .udp_tx_tlast(udp_tx_tlast),
 
-        // DSP input stream out to dsp_core_top
         .dsp_in_valid(dsp_in_valid),
         .dsp_in_row_start(dsp_in_row_start),
         .dsp_in_re(dsp_in_re),
         .dsp_in_im(dsp_in_im),
 
-        // DSP output stream in from dsp_core_top
         .dsp_out_valid(dsp_out_valid),
         .dsp_out_re(dsp_out_re),
-        .dsp_out_im(dsp_out_im),
-
-        // Optional DSP status back from core
-        .dsp_busy(dsp_busy),
-        .dsp_row_done(dsp_row_done),
-
-        // Existing debug signals
-        .debug_parser_state(debug_parser_state),
-        .debug_parser_byte_count(debug_parser_byte_count),
-        .debug_parser_sample_count(debug_parser_sample_count),
-        .debug_parser_packet_type(debug_parser_packet_type),
-        .debug_parser_valid_packet(debug_parser_valid_packet),
-        .debug_parser_hdr_valid(debug_parser_hdr_valid),
-        .debug_parser_sample_tvalid(debug_parser_sample_tvalid),
-        .debug_parser_sample_tready(debug_parser_sample_tready),
-        .debug_s2b_byte_ptr(debug_s2b_byte_ptr),
-        .debug_s2b_sample_hold(debug_s2b_sample_hold),
-        .debug_udp_tx_tvalid(debug_udp_tx_tvalid),
-        .debug_udp_tx_tlast(debug_udp_tx_tlast),
-        .debug_stored_src_ip(debug_stored_src_ip),
-        .debug_stored_src_port(debug_stored_src_port),
-        .debug_stored_dest_port(debug_stored_dest_port)
+        .dsp_out_im(dsp_out_im)
     );
 
     // ========================================================================
-    // INSTANTIATE: DSP Core Top
-    // This block should own the DSP pipeline only.
+    // DSP core
     // ========================================================================
     dsp_core_top dsp_core (
         .clk(clk_100mhz),
         .rst(axis_reset),
 
-        // Continuous complex row stream input
         .in_valid(dsp_in_valid),
         .in_row_start(dsp_in_row_start),
         .in_re(dsp_in_re),
         .in_im(dsp_in_im),
 
-        // Processed complex stream output
         .out_valid(dsp_out_valid),
         .out_re(dsp_out_re),
-        .out_im(dsp_out_im),
-
-        // Optional status
-        .busy(dsp_busy),
-        .row_done(dsp_row_done)
+        .out_im(dsp_out_im)
     );
 
     // ========================================================================
-    // Optional LED/debug mapping
-    // Update as useful during bring-up
+    // LEDs
     // ========================================================================
     always @(posedge clk_100mhz) begin
         if (axis_reset) begin
             my_led <= 8'h00;
-        end
-        else begin
+        end else begin
             my_led[0] <= pll_locked;
             my_led[1] <= phy_rst_n;
             my_led[2] <= udp_rx_tvalid;
             my_led[3] <= udp_tx_tvalid;
             my_led[4] <= dsp_in_valid;
             my_led[5] <= dsp_out_valid;
-            my_led[6] <= dsp_busy;
-            my_led[7] <= eth_activity_counter[26];
+            my_led[6] <= my_btns[0];
+            my_led[7] <= activity_counter[26];
         end
     end
 
 endmodule
+
