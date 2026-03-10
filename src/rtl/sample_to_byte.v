@@ -1,17 +1,4 @@
 
-/*
- * sample_to_byte.v
- *
- * Converts 32-bit samples to 8-bit byte stream (big-endian MSB first)
- *
- * FIXES:
- * - Prevents sample overwrite during final byte
- * - Correct tlast timing
- * - Proper AXI-stream handshake behavior
- * - Safe under backpressure
- */
-
-
 module sample_to_byte (
     input  wire        clk,
     input  wire        rst,

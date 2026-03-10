@@ -1,13 +1,21 @@
+
 /*
  * octogen_top.v
- * 
- * Top-level FPGA module with full debug probes for all stages
- * 
- * LED Modes (button-controlled):
- * BTN[0] = Mode 0: Ethernet RX diagnostics
- * BTN[1] = Mode 1: UDP RX diagnostics  
- * BTN[2] = Mode 2: Parser diagnostics
- * BTN[3] = Mode 3: sample_to_byte diagnostics
+ *
+ * Revised hierarchy:
+ *   octogen_top
+ *   ├── eth_io_top
+ *   ├── udp_processing_top
+ *   └── dsp_core_top
+ *
+ * Notes:
+ * - This establishes a clean boundary between transport/application handling
+ *   and DSP execution.
+ * - udp_processing_top is assumed to expose a DSP-facing streaming interface.
+ * - dsp_core_top is assumed to consume one complex sample per cycle and return
+ *   one processed complex sample stream.
+ * - You will need udp_processing_top and dsp_core_top port lists to match
+ *   this top-level wiring.
  */
 
 module octogen_top (
@@ -45,7 +53,7 @@ module octogen_top (
     wire axis_reset = ~pll_locked;
 
     // ========================================================================
-    // UDP RX/TX interconnect wires
+    // UDP RX/TX interconnect wires: eth_io_top <-> udp_processing_top
     // ========================================================================
     wire        udp_rx_hdr_valid;
     wire        udp_rx_hdr_ready;
@@ -62,13 +70,33 @@ module octogen_top (
     wire [31:0] udp_tx_dest_ip;
     wire [15:0] udp_tx_src_port;
     wire [15:0] udp_tx_dest_port;
+    wire [15:0] udp_tx_length;     // added for variable TX packet size
     wire [7:0]  udp_tx_tdata;
     wire        udp_tx_tvalid;
     wire        udp_tx_tready;
     wire        udp_tx_tlast;
 
     // ========================================================================
+    // DSP stream interconnect wires: udp_processing_top <-> dsp_core_top
+    // ========================================================================
+    // Input stream into DSP
+    wire        dsp_in_valid;
+    wire        dsp_in_row_start;
+    wire [31:0] dsp_in_re;
+    wire [31:0] dsp_in_im;
+
+    // Output stream from DSP
+    wire        dsp_out_valid;
+    wire [31:0] dsp_out_re;
+    wire [31:0] dsp_out_im;
+
+    // Optional status wires
+    wire        dsp_busy;
+    wire        dsp_row_done;
+
+    // ========================================================================
     // DEBUG wires from udp_processing_top
+    // Keep/remove as needed while refactoring
     // ========================================================================
     wire [1:0]  debug_parser_state;
     wire [1:0]  debug_parser_byte_count;
@@ -114,6 +142,8 @@ module octogen_top (
         .clk_125mhz(clk_125mhz),
         .clk_200mhz(clk_200mhz),
         .axis_reset(axis_reset),
+
+        // UDP RX toward udp_processing_top
         .udp_rx_hdr_valid(udp_rx_hdr_valid),
         .udp_rx_hdr_ready(udp_rx_hdr_ready),
         .udp_rx_src_ip(udp_rx_src_ip),
@@ -123,11 +153,14 @@ module octogen_top (
         .udp_rx_tvalid(udp_rx_tvalid),
         .udp_rx_tready(udp_rx_tready),
         .udp_rx_tlast(udp_rx_tlast),
+
+        // UDP TX from udp_processing_top
         .udp_tx_hdr_valid(udp_tx_hdr_valid),
         .udp_tx_hdr_ready(udp_tx_hdr_ready),
         .udp_tx_dest_ip(udp_tx_dest_ip),
         .udp_tx_src_port(udp_tx_src_port),
         .udp_tx_dest_port(udp_tx_dest_port),
+        .udp_tx_length(udp_tx_length),     // add this port in eth_io_top
         .udp_tx_tdata(udp_tx_tdata),
         .udp_tx_tvalid(udp_tx_tvalid),
         .udp_tx_tready(udp_tx_tready),
@@ -135,11 +168,15 @@ module octogen_top (
     );
 
     // ========================================================================
-    // INSTANTIATE: UDP Processing with packet parsing
+    // INSTANTIATE: UDP Processing / application-side transport adapter
+    // This module now owns packet parsing, row assembly, buffering,
+    // DSP launch/capture, and response packetization.
     // ========================================================================
     udp_processing_top udp_proc (
         .clk(clk_100mhz),
         .rst(axis_reset),
+
+        // UDP RX from eth_io_top
         .udp_rx_hdr_valid(udp_rx_hdr_valid),
         .udp_rx_hdr_ready(udp_rx_hdr_ready),
         .udp_rx_src_ip(udp_rx_src_ip),
@@ -149,15 +186,35 @@ module octogen_top (
         .udp_rx_tvalid(udp_rx_tvalid),
         .udp_rx_tready(udp_rx_tready),
         .udp_rx_tlast(udp_rx_tlast),
+
+        // UDP TX to eth_io_top
         .udp_tx_hdr_valid(udp_tx_hdr_valid),
         .udp_tx_hdr_ready(udp_tx_hdr_ready),
         .udp_tx_dest_ip(udp_tx_dest_ip),
         .udp_tx_src_port(udp_tx_src_port),
         .udp_tx_dest_port(udp_tx_dest_port),
+        .udp_tx_length(udp_tx_length),
         .udp_tx_tdata(udp_tx_tdata),
         .udp_tx_tvalid(udp_tx_tvalid),
         .udp_tx_tready(udp_tx_tready),
         .udp_tx_tlast(udp_tx_tlast),
+
+        // DSP input stream out to dsp_core_top
+        .dsp_in_valid(dsp_in_valid),
+        .dsp_in_row_start(dsp_in_row_start),
+        .dsp_in_re(dsp_in_re),
+        .dsp_in_im(dsp_in_im),
+
+        // DSP output stream in from dsp_core_top
+        .dsp_out_valid(dsp_out_valid),
+        .dsp_out_re(dsp_out_re),
+        .dsp_out_im(dsp_out_im),
+
+        // Optional DSP status back from core
+        .dsp_busy(dsp_busy),
+        .dsp_row_done(dsp_row_done),
+
+        // Existing debug signals
         .debug_parser_state(debug_parser_state),
         .debug_parser_byte_count(debug_parser_byte_count),
         .debug_parser_sample_count(debug_parser_sample_count),
@@ -176,77 +233,47 @@ module octogen_top (
     );
 
     // ========================================================================
-    // LED DEBUG CONTROL - Button-controlled mode selection (buttons active LOW)
+    // INSTANTIATE: DSP Core Top
+    // This block should own the DSP pipeline only.
     // ========================================================================
-    reg [1:0] debug_mode;
-    
-    always @(*) begin
-        if (!my_btns[0])
-            debug_mode = 2'b00;
-        else if (!my_btns[1])
-            debug_mode = 2'b01;
-        else if (!my_btns[2])
-            debug_mode = 2'b10;
-        else if (!my_btns[3])
-            debug_mode = 2'b11;
-        else
-            debug_mode = 2'b00;
-    end
+    dsp_core_top dsp_core (
+        .clk(clk_100mhz),
+        .rst(axis_reset),
 
+        // Continuous complex row stream input
+        .in_valid(dsp_in_valid),
+        .in_row_start(dsp_in_row_start),
+        .in_re(dsp_in_re),
+        .in_im(dsp_in_im),
+
+        // Processed complex stream output
+        .out_valid(dsp_out_valid),
+        .out_re(dsp_out_re),
+        .out_im(dsp_out_im),
+
+        // Optional status
+        .busy(dsp_busy),
+        .row_done(dsp_row_done)
+    );
+
+    // ========================================================================
+    // Optional LED/debug mapping
+    // Update as useful during bring-up
+    // ========================================================================
     always @(posedge clk_100mhz) begin
         if (axis_reset) begin
-            my_led <= 0;
-        end else begin
-
-            case (debug_mode)
-                
-                2'b00: begin
-                    // MODE 0: UDP RX and basic parser state
-                    my_led[1:0] <= debug_parser_state;
-                    my_led[2]   <= debug_parser_hdr_valid;
-                    my_led[3]   <= debug_parser_sample_tvalid;
-                    my_led[4]   <= debug_parser_sample_tready;
-                    my_led[5]   <= udp_rx_tvalid;
-                    my_led[6]   <= udp_tx_tvalid;
-                    my_led[7]   <= pll_locked;
-                end
-                
-                2'b01: begin
-                    // MODE 1: Byte counting
-                    my_led[1:0] <= debug_parser_byte_count;
-                    my_led[2]   <= (debug_parser_byte_count == 2'b00);
-                    my_led[3]   <= (debug_parser_byte_count == 2'b11);
-                    my_led[4]   <= udp_rx_tlast;
-                    my_led[5]   <= udp_rx_tvalid;
-                    my_led[6]   <= debug_parser_sample_count[0];
-                    my_led[7]   <= pll_locked;
-                end
-                
-                2'b10: begin
-                    // MODE 2: TX path - response being sent?
-                    my_led[1:0] <= debug_parser_state;
-                    my_led[2]   <= debug_udp_tx_tvalid;
-                    my_led[3]   <= debug_udp_tx_tlast;
-                    my_led[4]   <= debug_parser_sample_tvalid;
-                    my_led[5]   <= udp_tx_tready;
-                    my_led[6]   <= debug_parser_hdr_valid;
-                    my_led[7]   <= pll_locked;
-                end
-                
-                2'b11: begin
-                    // MODE 3: Byte conversion status
-                    my_led[1:0] <= debug_parser_state;
-                    my_led[2]   <= (debug_s2b_byte_ptr == 2'b00);
-                    my_led[3]   <= (debug_s2b_byte_ptr == 2'b11);
-                    my_led[4]   <= debug_udp_tx_tvalid;
-                    my_led[5]   <= debug_parser_sample_tvalid;
-                    my_led[6]   <= debug_parser_sample_tready;
-                    my_led[7]   <= pll_locked;
-                end
-            endcase
-
+            my_led <= 8'h00;
+        end
+        else begin
+            my_led[0] <= pll_locked;
+            my_led[1] <= phy_rst_n;
+            my_led[2] <= udp_rx_tvalid;
+            my_led[3] <= udp_tx_tvalid;
+            my_led[4] <= dsp_in_valid;
+            my_led[5] <= dsp_out_valid;
+            my_led[6] <= dsp_busy;
+            my_led[7] <= eth_activity_counter[26];
         end
     end
 
 endmodule
-
