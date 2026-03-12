@@ -104,7 +104,7 @@ module tb_ppbuffer;
     task expect_local(input logic cond, input string msg);
     begin
         if (cond) begin
-            $display("PASS: %s", msg);
+            //display("PASS: %s", msg);
             pass_count++;
         end
         else begin
@@ -145,7 +145,7 @@ module tb_ppbuffer;
     integer overflow_count;
     integer row_done_count;
 
-    bit debug_test1_enable;
+    bit debug_test1_raw_tail_enable;
 
     task clear_caps;
         integer i;
@@ -200,232 +200,79 @@ module tb_ppbuffer;
     end
 
     // -------------------------------------------------------------------------
-    // TEST1 DEBUG LOGGING
+    // Raw-tail-only debug for DSP-side final-sample duplication
+    // Focus only on raw read issue / raw dout / DSP input for 508..511.
     // -------------------------------------------------------------------------
-    
-     // -------------------------------------------------------------------------
-    // TEST1 DEBUG LOGGING
-    // -------------------------------------------------------------------------
+    logic [63:0] prev_raw0_doutb, prev_raw1_doutb;
+    logic prev_raw0_enb, prev_raw1_enb;
+
     always @(posedge clk) begin
-        if (!rst && debug_test1_enable) begin
-    
-            // ================================================================
-            // RX: batch boundaries, slot selection, slot state
-            // ================================================================
-            if (rx_sample_valid && (rx_batch_start || rx_sample_last || rx_overflow)) begin
-                $display("DBG C=%0d RX: batch_start=%0b row=%0d batch=%0d last=%0b re=%08h im=%08h | ready=%0b",
+        if (rst) begin
+            prev_raw0_doutb <= 64'd0;
+            prev_raw1_doutb <= 64'd0;
+            prev_raw0_enb   <= 1'b0;
+            prev_raw1_enb   <= 1'b0;
+        end
+        else if (debug_test1_raw_tail_enable) begin
+            // 1) raw read requests near the tail
+            if ((dut.raw0_enb && (dut.raw0_addrb >= 9'd508)) ||
+                (dut.raw1_enb && (dut.raw1_addrb >= 9'd508))) begin
+                $display("RAWTAIL C=%0d RAW_RD_ISSUE slot=%0b addr=%0d | raw0_enb=%0b raw0_addr=%0d | raw1_enb=%0b raw1_addr=%0d",
                          cycle_count,
-                         rx_batch_start, rx_batch_row_id, rx_batch_id, rx_sample_last,
-                         rx_sample_re, rx_sample_im, rx_sample_ready);
-    
-                $display("DBG C=%0d RX_CTRL: target_found=%0b target_slot=%0b rx_active=%0b rx_drop=%0b rx_slot_sel=%0b rx_addr=%0d batch_id_reg=%0d overflow=%0b",
-                         cycle_count,
-                         dut.rx_target_found, dut.rx_target_slot,
-                         dut.rx_active, dut.rx_drop, dut.rx_slot_sel,
-                         dut.rx_addr, dut.rx_batch_id_reg, rx_overflow);
-    
-                $display("DBG C=%0d SLOT: v0=%0b row0=%0d mask0=%b raw0=%0b proc0=%0b busy_dsp0=%0b busy_tx0=%0b | v1=%0b row1=%0d mask1=%b raw1=%0b proc1=%0b busy_dsp1=%0b busy_tx1=%0b",
-                         cycle_count,
-                         dut.slot_valid0, dut.slot_row_id0, dut.slot_batch_mask0, dut.slot_raw_ready0, dut.slot_proc_ready0, dut.slot_busy_dsp0, dut.slot_busy_tx0,
-                         dut.slot_valid1, dut.slot_row_id1, dut.slot_batch_mask1, dut.slot_raw_ready1, dut.slot_proc_ready1, dut.slot_busy_dsp1, dut.slot_busy_tx1);
+                         dut.raw1_enb ? 1'b1 : 1'b0,
+                         dut.raw1_enb ? dut.raw1_addrb : dut.raw0_addrb,
+                         dut.raw0_enb, dut.raw0_addrb,
+                         dut.raw1_enb, dut.raw1_addrb);
             end
-    
-            // ================================================================
-            // DSP raw-memory read pipeline and DSP input stream
-            // ================================================================
-            if (dut.dsp_active ||
+
+            // 2) tail metadata pipeline state when near the end
+            if ((dut.dsp_issue_idx >= 10'd508) ||
                 dut.dsp_rd_v[0] || dut.dsp_rd_v[1] || dut.dsp_rd_v[2] ||
-                dsp_in_valid || dsp_out_valid) begin
-    
-                if ((dut.dsp_issue_idx < 10'd8) ||
-                    (dut.dsp_issue_idx >= 10'd255 && dut.dsp_issue_idx <= 10'd257) ||
-                    (dut.dsp_issue_idx >= 10'd509) ||
-                    dsp_in_valid || dsp_out_valid) begin
-    
-                    $display("DBG C=%0d DSP_CTRL: active=%0b slot=%0b issue_idx=%0d write_idx=%0d | p0v=%0b p0slot=%0b p0start=%0b | p1v=%0b p1slot=%0b p1start=%0b | p2v=%0b p2slot=%0b p2start=%0b",
-                             cycle_count,
-                             dut.dsp_active, dut.dsp_slot_sel, dut.dsp_issue_idx, dut.dsp_write_idx,
-                             dut.dsp_rd_v[0], dut.dsp_rd_slot[0], dut.dsp_rd_start[0],
-                             dut.dsp_rd_v[1], dut.dsp_rd_slot[1], dut.dsp_rd_start[1],
-                             dut.dsp_rd_v[2], dut.dsp_rd_slot[2], dut.dsp_rd_start[2]);
-    
-                    $display("DBG C=%0d DSP_MEM: raw0_enb=%0b raw0_addrb=%0d raw0_doutb=%016h | raw1_enb=%0b raw1_addrb=%0d raw1_doutb=%016h",
-                             cycle_count,
-                             dut.raw0_enb, dut.raw0_addrb, dut.raw0_doutb,
-                             dut.raw1_enb, dut.raw1_addrb, dut.raw1_doutb);
-    
-                    if (dsp_in_valid) begin
-                        $display("DBG C=%0d DSP_IN : count=%0d start=%0b re=%08h im=%08h",
-                                 cycle_count, dsp_count, dsp_in_row_start, dsp_in_re, dsp_in_im);
-                    end
-                end
-            end
-    
-            // ================================================================
-            // DSP output write into processed memory
-            // ================================================================
-            if (dsp_out_valid) begin
-                $display("DBG C=%0d DSP_WR : write_idx=%0d | dsp_out_re=%08h dsp_out_im=%08h | proc0_ena=%0b proc0_wea=%0b proc0_addra=%0d proc0_dina=%016h | proc1_ena=%0b proc1_wea=%0b proc1_addra=%0d proc1_dina=%016h",
+                dut.dsp_data_v ||
+                (dsp_count >= 508)) begin
+                $display("RAWTAIL C=%0d DSP_PIPE issue_idx=%0d write_idx=%0d | rdv={%0b,%0b,%0b} slot={%0b,%0b,%0b} start={%0b,%0b,%0b} | dsp_data_v=%0b dsp_data_slot=%0b dsp_data_start=%0b",
                          cycle_count,
-                         dut.dsp_write_idx,
-                         dsp_out_re, dsp_out_im,
-                         dut.proc0_ena, dut.proc0_wea, dut.proc0_addra, dut.proc0_dina,
-                         dut.proc1_ena, dut.proc1_wea, dut.proc1_addra, dut.proc1_dina);
-    
-                $display("DBG C=%0d DSP_OUT: re=%08h im=%08h",
-                         cycle_count, dsp_out_re, dsp_out_im);
+                         dut.dsp_issue_idx, dut.dsp_write_idx,
+                         dut.dsp_rd_v[0], dut.dsp_rd_v[1], dut.dsp_rd_v[2],
+                         dut.dsp_rd_slot[0], dut.dsp_rd_slot[1], dut.dsp_rd_slot[2],
+                         dut.dsp_rd_start[0], dut.dsp_rd_start[1], dut.dsp_rd_start[2],
+                         dut.dsp_data_v, dut.dsp_data_slot, dut.dsp_data_start);
             end
-    
-            // ================================================================
-            // TX processed-memory read pipeline
-            // ================================================================
-            if (dut.tx_active ||
-                dut.tx_rd_v[0] || dut.tx_rd_v[1] || dut.tx_rd_v[2] ||
-                dut.tx_cap_valid ||
-                tx_row_valid || row_tx_done) begin
-    
-                if ((dut.tx_issue_idx < 10'd8) ||
-                    (dut.tx_issue_idx >= 10'd255 && dut.tx_issue_idx <= 10'd257) ||
-                    (dut.tx_issue_idx >= 10'd509) ||
-                    dut.tx_cap_valid ||
-                    tx_row_valid || row_tx_done) begin
-    
-                    $display("DBG C=%0d TX_RD : issue_idx=%0d | p0v=%0b p0slot=%0b p0start=%0b p0last=%0b | p1v=%0b p1slot=%0b p1start=%0b p1last=%0b | p2v=%0b p2slot=%0b p2start=%0b p2last=%0b",
-                             cycle_count,
-                             dut.tx_issue_idx,
-                             dut.tx_rd_v[0], dut.tx_rd_slot[0], dut.tx_rd_start[0], dut.tx_rd_last[0],
-                             dut.tx_rd_v[1], dut.tx_rd_slot[1], dut.tx_rd_start[1], dut.tx_rd_last[1],
-                             dut.tx_rd_v[2], dut.tx_rd_slot[2], dut.tx_rd_start[2], dut.tx_rd_last[2]);
-    
-                    $display("DBG C=%0d TX_CAP: valid=%0b slot=%0b start=%0b last=%0b data=%016h",
-                             cycle_count,
-                             dut.tx_cap_valid, dut.tx_cap_slot, dut.tx_cap_start, dut.tx_cap_last, dut.tx_cap_data);
-    
-                    $display("DBG C=%0d TX_MEM: proc0_enb=%0b proc0_addrb=%0d proc0_doutb=%016h | proc1_enb=%0b proc1_addrb=%0d proc1_doutb=%016h",
-                             cycle_count,
-                             dut.proc0_enb, dut.proc0_addrb, dut.proc0_doutb,
-                             dut.proc1_enb, dut.proc1_addrb, dut.proc1_doutb);
-                end
-            end
-    
-            // ================================================================
-            // TX held beat and actual output handshake
-            // ================================================================
-            if (tx_row_valid || dut.tx_valid_reg || row_tx_done) begin
-                $display("DBG C=%0d TX_HOLD: valid_reg=%0b start_reg=%0b last_reg=%0b row_id_reg=%0d re_reg=%08h im_reg=%08h accept=%0b ready=%0b",
+
+            // 3) raw dout changes near tail
+            if ((((dut.raw0_doutb !== prev_raw0_doutb) || (dut.raw0_enb !== prev_raw0_enb)) &&
+                 (dut.raw0_addrb >= 9'd508)) ||
+                (((dut.raw1_doutb !== prev_raw1_doutb) || (dut.raw1_enb !== prev_raw1_enb)) &&
+                 (dut.raw1_addrb >= 9'd508))) begin
+                $display("RAWTAIL C=%0d RAW_MEM raw0_enb=%0b raw0_addr=%0d raw0_dout=%016h | raw1_enb=%0b raw1_addr=%0d raw1_dout=%016h",
                          cycle_count,
-                         dut.tx_valid_reg, dut.tx_start_reg, dut.tx_last_reg,
-                         dut.tx_row_id_reg, dut.tx_re_reg, dut.tx_im_reg,
-                         dut.tx_accept, tx_row_ready);
-    
-                if (tx_row_valid && tx_row_ready) begin
-                    $display("DBG C=%0d TX_OUT : count=%0d start=%0b row=%0d re=%08h im=%08h",
-                             cycle_count, tx_count, tx_row_start, tx_row_row_id, tx_row_re, tx_row_im);
-                end
-    
-                if (row_tx_done) begin
-                    $display("DBG C=%0d TX_DONE", cycle_count);
-                end
+                         dut.raw0_enb, dut.raw0_addrb, dut.raw0_doutb,
+                         dut.raw1_enb, dut.raw1_addrb, dut.raw1_doutb);
             end
+
+            // 4) actual DSP inputs at the tail
+            if (dsp_in_valid && (dsp_count >= 508)) begin
+                $display("RAWTAIL C=%0d DSP_IN idx=%0d start=%0b re=%08h im=%08h",
+                         cycle_count, dsp_count, dsp_in_row_start, dsp_in_re, dsp_in_im);
+            end
+
+            // 5) final DSP outputs / proc writes to correlate with the tail input
+            if (dsp_out_valid && (dut.dsp_write_idx >= 508)) begin
+                $display("RAWTAIL C=%0d DSP_OUT write_idx=%0d re=%08h im=%08h",
+                         cycle_count, dut.dsp_write_idx, dsp_out_re, dsp_out_im);
+            end
+
+            if (dut.proc_wr_pending && (dut.proc_wr_addr >= 9'd508)) begin
+                $display("RAWTAIL C=%0d PROC_WR addr=%0d data=%016h last=%0b slot=%0b",
+                         cycle_count, dut.proc_wr_addr, dut.proc_wr_data, dut.proc_wr_last, dut.proc_wr_slot);
+            end
+
+            prev_raw0_doutb <= dut.raw0_doutb;
+            prev_raw1_doutb <= dut.raw1_doutb;
+            prev_raw0_enb   <= dut.raw0_enb;
+            prev_raw1_enb   <= dut.raw1_enb;
         end
     end
- 
- 
-    /* 
-    always @(posedge clk) begin
-        if (!rst && debug_test1_enable) begin
-
-            // RX batch boundary and slot-selection relevant signals
-            if (rx_sample_valid && (rx_batch_start || rx_sample_last || rx_overflow)) begin
-                $display("DBG C=%0d RX: batch_start=%0b row=%0d batch=%0d last=%0b re=%08h im=%08h | ready=%0b",
-                         cycle_count,
-                         rx_batch_start, rx_batch_row_id, rx_batch_id, rx_sample_last,
-                         rx_sample_re, rx_sample_im, rx_sample_ready);
-
-                $display("DBG C=%0d RX_CTRL: target_found=%0b target_slot=%0b rx_active=%0b rx_drop=%0b rx_slot_sel=%0b rx_addr=%0d batch_id_reg=%0d overflow=%0b",
-                         cycle_count,
-                         dut.rx_target_found, dut.rx_target_slot,
-                         dut.rx_active, dut.rx_drop, dut.rx_slot_sel,
-                         dut.rx_addr, dut.rx_batch_id_reg, rx_overflow);
-
-                $display("DBG C=%0d SLOT: v0=%0b row0=%0d mask0=%b raw0=%0b proc0=%0b busy_dsp0=%0b busy_tx0=%0b | v1=%0b row1=%0d mask1=%b raw1=%0b proc1=%0b busy_dsp1=%0b busy_tx1=%0b",
-                         cycle_count,
-                         dut.slot_valid0, dut.slot_row_id0, dut.slot_batch_mask0, dut.slot_raw_ready0, dut.slot_proc_ready0, dut.slot_busy_dsp0, dut.slot_busy_tx0,
-                         dut.slot_valid1, dut.slot_row_id1, dut.slot_batch_mask1, dut.slot_raw_ready1, dut.slot_proc_ready1, dut.slot_busy_dsp1, dut.slot_busy_tx1);
-            end
-
-            // DSP launch / read pipeline / endpoints
-            if (dut.dsp_active ||
-                dut.dsp_rd_p1_valid || dut.dsp_rd_p2_valid ||
-                dsp_in_valid || dsp_out_valid) begin
-
-                if ((dut.dsp_issue_idx < 8) ||
-                    (dut.dsp_issue_idx >= 10'd255 && dut.dsp_issue_idx <= 10'd257) ||
-                    (dut.dsp_issue_idx >= 10'd509) ||
-                    dsp_in_valid || dsp_out_valid) begin
-
-                    $display("DBG C=%0d DSP_CTRL: active=%0b slot=%0b issue_idx=%0d out_idx=%0d | p1v=%0b p1slot=%0b p1start=%0b | p2v=%0b p2slot=%0b p2start=%0b",
-                             cycle_count,
-                             dut.dsp_active, dut.dsp_slot_sel, dut.dsp_issue_idx, dut.dsp_out_idx,
-                             dut.dsp_rd_p1_valid, dut.dsp_rd_p1_slot, dut.dsp_rd_p1_start,
-                             dut.dsp_rd_p2_valid, dut.dsp_rd_p2_slot, dut.dsp_rd_p2_start);
-
-                    $display("DBG C=%0d DSP_MEM: raw0_enb=%0b raw0_addrb=%0d raw0_doutb=%016h | raw1_enb=%0b raw1_addrb=%0d raw1_doutb=%016h",
-                             cycle_count,
-                             dut.raw0_enb, dut.raw0_addrb, dut.raw0_doutb,
-                             dut.raw1_enb, dut.raw1_addrb, dut.raw1_doutb);
-
-                    if (dsp_in_valid) begin
-                        $display("DBG C=%0d DSP_IN : count=%0d start=%0b re=%08h im=%08h",
-                                 cycle_count, dsp_count, dsp_in_row_start, dsp_in_re, dsp_in_im);
-                    end
-
-                    if (dsp_out_valid) begin
-                        $display("DBG C=%0d DSP_OUT: re=%08h im=%08h",
-                                 cycle_count, dsp_out_re, dsp_out_im);
-                    end
-                end
-            end
-
-            // TX launch / read pipeline / handshakes
-            if (dut.tx_active ||
-                dut.tx_rd_p1_valid || dut.tx_rd_p2_valid ||
-                tx_row_valid || row_tx_done) begin
-
-                if ((dut.tx_issue_idx < 8) ||
-                    (dut.tx_issue_idx >= 10'd255 && dut.tx_issue_idx <= 10'd257) ||
-                    (dut.tx_issue_idx >= 10'd509) ||
-                    tx_row_valid || row_tx_done) begin
-
-                    $display("DBG C=%0d TX_CTRL: active=%0b slot=%0b issue_idx=%0d | p1v=%0b p1slot=%0b p1start=%0b p1last=%0b | p2v=%0b p2slot=%0b p2start=%0b p2last=%0b",
-                             cycle_count,
-                             dut.tx_active, dut.tx_slot_sel, dut.tx_issue_idx,
-                             dut.tx_rd_p1_valid, dut.tx_rd_p1_slot, dut.tx_rd_p1_start, dut.tx_rd_p1_last,
-                             dut.tx_rd_p2_valid, dut.tx_rd_p2_slot, dut.tx_rd_p2_start, dut.tx_rd_p2_last);
-
-                    $display("DBG C=%0d TX_HOLD: valid_reg=%0b start_reg=%0b last_reg=%0b row_id_reg=%0d re_reg=%08h im_reg=%08h accept=%0b ready=%0b",
-                             cycle_count,
-                             dut.tx_valid_reg, dut.tx_start_reg, dut.tx_last_reg,
-                             dut.tx_row_id_reg, dut.tx_re_reg, dut.tx_im_reg,
-                             dut.tx_accept, tx_row_ready);
-
-                    $display("DBG C=%0d TX_MEM : proc0_enb=%0b proc0_addrb=%0d proc0_doutb=%016h | proc1_enb=%0b proc1_addrb=%0d proc1_doutb=%016h",
-                             cycle_count,
-                             dut.proc0_enb, dut.proc0_addrb, dut.proc0_doutb,
-                             dut.proc1_enb, dut.proc1_addrb, dut.proc1_doutb);
-
-                    if (tx_row_valid && tx_row_ready) begin
-                        $display("DBG C=%0d TX_OUT : count=%0d start=%0b row=%0d re=%08h im=%08h",
-                                 cycle_count, tx_count, tx_row_start, tx_row_row_id, tx_row_re, tx_row_im);
-                    end
-
-                    if (row_tx_done) begin
-                        $display("DBG C=%0d TX_DONE", cycle_count);
-                    end
-                end
-            end
-        end
-    end */
 
     // -------------------------------------------------------------------------
     // Stimulus helpers
@@ -533,27 +380,28 @@ module tb_ppbuffer;
     logic ok;
 
     initial begin
-        rx_batch_start  = 0;
-        rx_batch_row_id = 0;
-        rx_batch_id     = 0;
-        rx_sample_valid = 0;
-        rx_sample_re    = 0;
-        rx_sample_im    = 0;
-        rx_sample_last  = 0;
-        tx_row_ready    = 1;
-        debug_test1_enable = 0;
+        rx_batch_start           = 0;
+        rx_batch_row_id          = 0;
+        rx_batch_id              = 0;
+        rx_sample_valid          = 0;
+        rx_sample_re             = 0;
+        rx_sample_im             = 0;
+        rx_sample_last           = 0;
+        tx_row_ready             = 1;
+        debug_test1_raw_tail_enable = 0;
 
         repeat (10) @(posedge clk);
         rst = 0;
 
         // =====================================================================
-        // TEST1: debug-verbose
+        // TEST1: basic row reassembly / DSP / TX
+        // raw-tail-only localization for idx/address 511 bug
         // =====================================================================
         $display("============================================================");
         $display("TEST1: basic row reassembly / DSP / TX");
         $display("============================================================");
         clear_caps();
-        debug_test1_enable = 1;
+        debug_test1_raw_tail_enable = 1;
 
         send_batch(10'd5, 2'd2);
         send_batch(10'd5, 2'd0);
@@ -561,7 +409,7 @@ module tb_ppbuffer;
         send_batch(10'd5, 2'd1);
 
         wait_for_done(1, 30000, ok);
-        debug_test1_enable = 0;
+        debug_test1_raw_tail_enable = 0;
 
         print_summary("TEST1");
         expect_local(ok, "row 5 transmitted");
@@ -571,7 +419,7 @@ module tb_ppbuffer;
         check_tx_sequence(10'd5);
 
         // =====================================================================
-        // TEST2+
+        // TEST2: TX backpressure
         // =====================================================================
         $display("============================================================");
         $display("TEST2: TX backpressure");
@@ -604,6 +452,9 @@ module tb_ppbuffer;
         check_tx_sequence(10'd9);
         tx_row_ready <= 1;
 
+        // =====================================================================
+        // TEST3: same-row slot reuse
+        // =====================================================================
         $display("============================================================");
         $display("TEST3: same-row slot reuse");
         $display("============================================================");
@@ -620,6 +471,9 @@ module tb_ppbuffer;
         expect_local(overflow_count == 0, "same-row reuse no overflow");
         check_tx_sequence(10'd12);
 
+        // =====================================================================
+        // TEST4: overflow on third partial row
+        // =====================================================================
         $display("============================================================");
         $display("TEST4: overflow on third partial row");
         $display("============================================================");
@@ -632,6 +486,9 @@ module tb_ppbuffer;
         idle_cycles(20);
         expect_local(overflow_count > 0, "overflow detected");
 
+        // =====================================================================
+        // TEST5: reset recovery
+        // =====================================================================
         $display("============================================================");
         $display("TEST5: reset recovery");
         $display("============================================================");
@@ -647,6 +504,9 @@ module tb_ppbuffer;
         expect_local(overflow_count == 0, "no overflow TEST5");
         check_tx_sequence(10'd7);
 
+        // =====================================================================
+        // TEST6: two sequential rows
+        // =====================================================================
         $display("============================================================");
         $display("TEST6: two sequential rows");
         $display("============================================================");
@@ -679,5 +539,3 @@ module tb_ppbuffer;
     end
 
 endmodule
-
-

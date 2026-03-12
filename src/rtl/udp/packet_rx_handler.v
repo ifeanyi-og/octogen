@@ -1,19 +1,4 @@
 `timescale 1ns / 1ps
-// =============================================================================
-// Module: app_packet_rx
-// Description: Parse incoming UDP payloads, validate application header,
-//              and extract complex samples (Re/Im int32 pairs).
-//
-// Packet format:
-//   Bytes [3:0]      - Application header (32-bit)
-//                      [31:24] magic  = 0xFF
-//                      [23:16] magic2 = 0xFF
-//                      [15:14] batch_id (0-3)
-//                      [13:10] reserved
-//                      [9:0]   row_id (0-767)
-//   Bytes [1027:4]   - 1024 payload bytes = 128 complex samples
-//                      Each sample: Re[31:0] Im[31:0] (little-endian int32)
-// =============================================================================
 
 // =============================================================================
 // Module: app_packet_rx
@@ -22,13 +7,16 @@
 //
 // Packet format:
 //   Bytes [3:0]      - Application header (32-bit)
-//                      [31:24] magic  = 0xFF
-//                      [23:16] magic2 = 0xFF
+//                      [31:24] wakeup  = 0xFF
+//                      [23:16] wakeup = 0x00
 //                      [15:14] batch_id (0-3)
 //                      [13:10] reserved
 //                      [9:0]   row_id (0-767)
 //   Bytes [1027:4]   - 1024 payload bytes = 128 complex samples
 //                      Each sample: Re[31:0] Im[31:0] (little-endian int32)
+// 
+// 0b11111111 0b00000000 0b01xxxxxx0 0b00001001
+// 0xFF        0x00   [00, 01, 10, 11]  
 // =============================================================================
 
 
