@@ -14,7 +14,7 @@ set_property IOSTANDARD LVCMOS18 [get_ports rgmii_tx_ctl]
 set_property IOSTANDARD LVCMOS18 [get_ports rgmii_txc]
 set_property PACKAGE_PIN G22 [get_ports osc_clk]
 set_property PACKAGE_PIN D26 [get_ports reset_btn]
-# create_clock -period 20.000 -name osc_clk [get_ports osc_clk]
+create_clock -period 20.000 -name osc_clk [get_ports osc_clk]
 
 set_property PACKAGE_PIN AE1 [get_ports {rgmii_rd[3]}]
 set_property PACKAGE_PIN AE2 [get_ports {rgmii_rd[2]}]

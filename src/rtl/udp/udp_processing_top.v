@@ -64,8 +64,21 @@ module udp_processing_top (
 
     reg        stage_full;
     reg        replay_active;
+    
+    // More Decl<3s
+    wire [7:0]  app_tx_tdata;
+    wire        app_tx_tvalid;
+    wire        app_tx_tlast;
+    wire        app_tx_payload_ready;
+
+    reg [9:0] app_tx_loaded_row_id;
 
     wire pkt_path_free = !cur_pkt_active && !stage_full && !replay_active;
+    
+    wire udp_hdr_hs = udp_tx_hdr_valid && udp_tx_hdr_ready;
+    wire udp_pay_hs = udp_tx_tvalid && udp_tx_tready;
+
+    wire tx_row_finished = udp_pay_hs && at_packet_end && final_packet;
     assign udp_rx_hdr_ready = pkt_path_free;
 
     always @(posedge clk or posedge rst) begin
@@ -303,12 +316,7 @@ module udp_processing_top (
     // =========================================================================
     // app_packet_tx
     // =========================================================================
-    wire [7:0]  app_tx_tdata;
-    wire        app_tx_tvalid;
-    wire        app_tx_tlast;
-    wire        app_tx_payload_ready;
 
-    reg [9:0] app_tx_loaded_row_id;
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
@@ -361,10 +369,7 @@ module udp_processing_top (
     assign udp_tx_tvalid = tx_stream_active && !tx_hdr_pending && app_tx_tvalid;
     assign udp_tx_tlast  = tx_stream_active && !tx_hdr_pending && app_tx_tlast;
 
-    wire udp_hdr_hs = udp_tx_hdr_valid && udp_tx_hdr_ready;
-    wire udp_pay_hs = udp_tx_tvalid && udp_tx_tready;
 
-    wire tx_row_finished = udp_pay_hs && at_packet_end && final_packet;
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
