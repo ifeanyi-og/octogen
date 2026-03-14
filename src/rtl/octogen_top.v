@@ -12,6 +12,11 @@
  * - eth_io_top handles Ethernet / UDP transport
  * - udp_processing_top handles application parsing / buffering / packetization
  * - dsp_core_top handles DSP only
+ 
+ Keep Handy:
+ set_param general.maxThreads 8
+ launch_runs synth_1 -jobs 4
+ launch_runs impl_1 -jobs 2
  */
 
 module octogen_top (
