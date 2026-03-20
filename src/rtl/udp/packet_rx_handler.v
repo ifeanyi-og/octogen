@@ -111,7 +111,7 @@ module app_packet_rx (
                             2'd3: begin
                                 hdr_shift[31:24] <= udp_rx_tdata;
 
-                                if ((hdr_shift[23:16] == 8'hFF) &&
+                                if ((hdr_shift[23:16] == 8'h01) &&
                                     (udp_rx_tdata      == 8'hFF)) begin
                                     batch_id     <= hdr_shift[15:14];
                                     batch_row_id <= hdr_shift[9:0];

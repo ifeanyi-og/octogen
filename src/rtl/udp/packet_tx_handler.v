@@ -10,7 +10,7 @@
 //
 // Header word:
 //   [31:24] = 8'hFF
-//   [23:16] = 8'hFF
+//   [23:16] = 8'h03
 //   [15:14] = batch_id
 //   [13:10] = 4'b0000
 //   [9:0]   = row_id
@@ -113,7 +113,7 @@ module app_packet_tx (
 
     always @(*) begin
         tx_tdata_r = 8'h00;
-        hdr_word   = {8'hFF, 8'hFF, packet_idx[1:0], 4'b0000, active_row_id[9:0]};
+        hdr_word   = {8'hFF, 8'h03, packet_idx[1:0], 4'b0000, active_row_id[9:0]};
 
         if (state == ST_TX) begin
             case (byte_idx)

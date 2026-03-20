@@ -189,7 +189,7 @@ module tb_packet_tx;
         logic [31:0] val;
         logic [31:0] hdr_word;
     begin
-        hdr_word = {8'hFF, 8'hFF, packet_idx_f[1:0], 4'b0000, expected_row_id[9:0]};
+        hdr_word = {8'hFF, 8'h03, packet_idx_f[1:0], 4'b0000, expected_row_id[9:0]};
 
         if (byte_idx_f == 0)
             expected_byte = hdr_word[7:0];

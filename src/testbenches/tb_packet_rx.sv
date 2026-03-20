@@ -129,7 +129,7 @@ module tb_packet_rx;
     task send_header(input [9:0] row, input [1:0] batch);
         logic [31:0] hdr;
     begin
-        hdr = {8'hFF, 8'hFF, batch, 4'b0000, row};
+        hdr = {8'hFF, 8'h01, batch, 4'b0000, row};
 
         send_byte(hdr[7:0],   1'b0);
         send_byte(hdr[15:8],  1'b0);
