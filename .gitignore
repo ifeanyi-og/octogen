@@ -32,6 +32,7 @@ src/bd/*.veo
 *.ip_user_files/
 *.srcs/sources_1/ip/*/synth/
 *.srcs/sources_1/ip/*/sim/
+src/ip/*
 
 # Logs / journal / misc
 *.jou

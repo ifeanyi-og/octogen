@@ -46,7 +46,7 @@ module octogen_top (
         .clk_mn  (clk_100mhz),
         .clk_gtx (clk_125mhz),
         .clk_spd (clk_200mhz),
-        .clk_gtx2(),
+        //.clk_gtx2(),
         .reset   (~reset_btn),
         .locked  (pll_locked)
     );
