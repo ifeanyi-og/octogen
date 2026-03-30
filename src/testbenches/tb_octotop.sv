@@ -19,12 +19,37 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
-`timescale 1ns/1ps
 
-module tb_octotop;
+// =============================================================================
+// tb_octogen
+//
+// Top-level simulation bench using:
+// - sim clock wizard stub
+// - sim eth_io_top transport shim
+//
+// This bench is updated for:
+// - RX: 4 packets/row, 256 real samples/packet, header 0xFF01
+// - TX: 2 packets/row, 256 real samples/packet, header 0xFF03
+// - TX row ID autonomous counter starting at 0 after reset
+// =============================================================================
+module tb_octogen;
+
+    localparam int APP_UDP_PORT        = 16'd5001;
+
+    localparam int RX_BATCH_SAMPLES    = 256;
+    localparam int RX_PACKETS_PER_ROW  = 4;
+
+    localparam int TX_BATCH_SAMPLES    = 256;
+    localparam int TX_PACKETS_PER_ROW  = 2;
+
+    localparam int BYTES_PER_PACKET    = 1028;
+    localparam int TOTAL_TX_BYTES      = TX_PACKETS_PER_ROW * BYTES_PER_PACKET;
+
+    localparam logic [15:0] RX_HDR_TAG = 16'hFF01;
+    localparam logic [15:0] TX_HDR_TAG = 16'hFF03;
 
     // ========================================================================
-    // Top-level DUT pins
+    // DUT pins
     // ========================================================================
     logic        reset_btn;
     logic [3:0]  rgmii_rd;
@@ -38,47 +63,54 @@ module tb_octotop;
     logic [3:0]  my_btns;
     wire         phy_rst_n;
 
-    // free-running oscillator
     initial osc_clk = 1'b0;
     always #5 osc_clk = ~osc_clk;
 
     octogen_top dut (
-        .reset_btn(reset_btn),
-        .rgmii_rd(rgmii_rd),
-        .rgmii_rx_ctl(rgmii_rx_ctl),
-        .rgmii_rxc(rgmii_rxc),
-        .rgmii_td(rgmii_td),
-        .rgmii_tx_ctl(rgmii_tx_ctl),
-        .rgmii_txc(rgmii_txc),
-        .osc_clk(osc_clk),
-        .my_led(my_led),
-        .my_btns(my_btns),
-        .phy_rst_n(phy_rst_n)
+        .reset_btn    (reset_btn),
+        .rgmii_rd     (rgmii_rd),
+        .rgmii_rx_ctl (rgmii_rx_ctl),
+        .rgmii_rxc    (rgmii_rxc),
+        .rgmii_td     (rgmii_td),
+        .rgmii_tx_ctl (rgmii_tx_ctl),
+        .rgmii_txc    (rgmii_txc),
+        .osc_clk      (osc_clk),
+        .my_led       (my_led),
+        .my_btns      (my_btns),
+        .phy_rst_n    (phy_rst_n)
     );
 
     // ========================================================================
     // Scoreboard
     // ========================================================================
-    integer pass = 0;
-    integer fail = 0;
+    int pass = 0;
+    int fail = 0;
 
-    task expect_local(input logic cond, input string msg);
+    task automatic expect_local(input bit cond, input string msg);
     begin
         if (cond) begin
-            $display("PASS: %s", msg);
-            pass = pass + 1;
+            pass++;
         end else begin
             $display("FAIL: %s", msg);
-            fail = fail + 1;
+            fail++;
+        end
+    end
+    endtask
+
+    task automatic fatal_if_fail(input bit cond, input string msg);
+    begin
+        expect_local(cond, msg);
+        if (!cond) begin
+            $display("Stopping due to failure: %s", msg);
+            $finish;
         end
     end
     endtask
 
     // ========================================================================
-    // Access stub internals through hierarchy
-    //   dut.eth_io.<signals>
+    // Access helpers
     // ========================================================================
-    task wait_clk100(input integer n);
+    task automatic wait_clk100(input integer n);
         integer i;
     begin
         for (i = 0; i < n; i = i + 1)
@@ -86,38 +118,140 @@ module tb_octotop;
     end
     endtask
 
-    task send_udp_header(input [31:0] src_ip, input [15:0] src_port, input [15:0] dest_port);
+    function automatic logic [31:0] bytes_to_u32_le(
+        input byte b0, input byte b1, input byte b2, input byte b3
+    );
+        bytes_to_u32_le = {b3, b2, b1, b0};
+    endfunction
+
+    function automatic logic [31:0] expected_rx_header_word(
+        input logic [9:0] row_id,
+        input logic [1:0] batch_id
+    );
+        expected_rx_header_word = {RX_HDR_TAG, batch_id, 4'b0000, row_id};
+    endfunction
+
+    function automatic logic [31:0] expected_tx_header_word(
+        input logic [9:0] tx_row_id,
+        input logic [1:0] batch_id
+    );
+        expected_tx_header_word = {TX_HDR_TAG, batch_id, 4'b0000, tx_row_id};
+    endfunction
+
+    // ========================================================================
+    // TX capture
+    // ========================================================================
+    typedef struct packed {
+        logic [31:0] dest_ip;
+        logic [15:0] src_port;
+        logic [15:0] dest_port;
+        logic [15:0] length;
+    } tx_hdr_t;
+
+    tx_hdr_t tx_hdr_q[$];
+    tx_hdr_t pending_hdr_q[$];
+    byte     tx_pkts[$][$];
+
+    int active_pkt_idx;
+    int active_byte_idx;
+    bit active_pkt_open;
+
+    task automatic clear_tx_capture;
+    begin
+        tx_hdr_q.delete();
+        pending_hdr_q.delete();
+        tx_pkts.delete();
+        active_pkt_idx  = -1;
+        active_byte_idx = 0;
+        active_pkt_open = 0;
+    end
+    endtask
+
+    always @(posedge dut.clk_100mhz) begin
+        if (dut.axis_reset) begin
+            clear_tx_capture();
+        end else begin
+            if (dut.eth_io.udp_tx_hdr_valid && dut.eth_io.udp_tx_hdr_ready) begin
+                tx_hdr_t h;
+                h.dest_ip   = dut.eth_io.udp_tx_dest_ip;
+                h.src_port  = dut.eth_io.udp_tx_src_port;
+                h.dest_port = dut.eth_io.udp_tx_dest_port;
+                h.length    = dut.eth_io.udp_tx_length;
+                tx_hdr_q.push_back(h);
+                pending_hdr_q.push_back(h);
+            end
+
+            if (dut.eth_io.udp_tx_tvalid && dut.eth_io.udp_tx_tready) begin
+                if (!active_pkt_open) begin
+                    if (pending_hdr_q.size() == 0) begin
+                        $display("ERROR: TX payload with no matching header");
+                        fail++;
+                    end else begin
+                        pending_hdr_q.pop_front();
+                        tx_pkts.push_back({});
+                        active_pkt_idx  = tx_pkts.size() - 1;
+                        active_byte_idx = 0;
+                        active_pkt_open = 1'b1;
+                        tx_pkts[active_pkt_idx].push_back(dut.eth_io.udp_tx_tdata);
+
+                        if (dut.eth_io.udp_tx_tlast)
+                            active_pkt_open = 1'b0;
+                        else
+                            active_byte_idx = 1;
+                    end
+                end else begin
+                    tx_pkts[active_pkt_idx].push_back(dut.eth_io.udp_tx_tdata);
+
+                    if (dut.eth_io.udp_tx_tlast)
+                        active_pkt_open = 1'b0;
+                    else
+                        active_byte_idx = active_byte_idx + 1;
+                end
+            end
+        end
+    end
+
+    // ========================================================================
+    // RX injection via eth_io sim shim
+    // ========================================================================
+    task automatic send_udp_header(
+        input logic [31:0] src_ip,
+        input logic [15:0] src_port,
+        input logic [15:0] dest_port
+    );
     begin
         while (!dut.eth_io.udp_rx_hdr_ready)
             @(posedge dut.clk_100mhz);
 
-        @(posedge dut.clk_100mhz);
         dut.eth_io.tb_udp_rx_hdr_valid <= 1'b1;
         dut.eth_io.tb_udp_rx_src_ip    <= src_ip;
         dut.eth_io.tb_udp_rx_src_port  <= src_port;
         dut.eth_io.tb_udp_rx_dest_port <= dest_port;
 
-        while (!(dut.eth_io.tb_udp_rx_hdr_valid && dut.eth_io.udp_rx_hdr_ready))
-            @(posedge dut.clk_100mhz);
+        do @(posedge dut.clk_100mhz); while (!(dut.eth_io.tb_udp_rx_hdr_valid && dut.eth_io.udp_rx_hdr_ready));
 
-        @(posedge dut.clk_100mhz);
         dut.eth_io.tb_udp_rx_hdr_valid <= 1'b0;
     end
     endtask
 
-    task send_udp_byte(input [7:0] b, input logic last);
+    task automatic send_udp_byte(input byte b, input bit last);
     begin
         while (!dut.eth_io.udp_rx_tready)
             @(posedge dut.clk_100mhz);
 
-        @(posedge dut.clk_100mhz);
         dut.eth_io.tb_udp_rx_tdata  <= b;
         dut.eth_io.tb_udp_rx_tvalid <= 1'b1;
         dut.eth_io.tb_udp_rx_tlast  <= last;
+
+        do @(posedge dut.clk_100mhz); while (!(dut.eth_io.tb_udp_rx_tvalid && dut.eth_io.udp_rx_tready));
+
+        dut.eth_io.tb_udp_rx_tvalid <= 1'b0;
+        dut.eth_io.tb_udp_rx_tlast  <= 1'b0;
+        dut.eth_io.tb_udp_rx_tdata  <= 8'h00;
     end
     endtask
 
-    task idle_udp(input integer n);
+    task automatic idle_udp(input integer n);
         integer i;
     begin
         for (i = 0; i < n; i = i + 1) begin
@@ -129,133 +263,202 @@ module tb_octotop;
     end
     endtask
 
-    task send_app_packet(
-        input [9:0]  row_id,
-        input [1:0]  batch_id,
-        input [31:0] src_ip,
-        input [15:0] src_port,
-        input [15:0] dest_port
+    task automatic send_app_packet(
+        input logic [9:0]  row_id,
+        input logic [1:0]  batch_id,
+        input logic [31:0] src_ip,
+        input logic [15:0] src_port,
+        input logic [15:0] dest_port
     );
         integer i;
         integer global_idx;
         logic [31:0] hdr;
-        logic [31:0] re_val;
-        logic [31:0] im_val;
+        logic [31:0] data_val;
     begin
         send_udp_header(src_ip, src_port, dest_port);
 
-        hdr = {8'hFF, 8'hFF, batch_id, 4'b0000, row_id};
+        hdr = expected_rx_header_word(row_id, batch_id);
 
         send_udp_byte(hdr[7:0],   1'b0);
         send_udp_byte(hdr[15:8],  1'b0);
         send_udp_byte(hdr[23:16], 1'b0);
         send_udp_byte(hdr[31:24], 1'b0);
 
-        for (i = 0; i < 128; i = i + 1) begin
-            global_idx = batch_id * 128 + i;
-            re_val = global_idx;
-            im_val = global_idx + 1000;
+        for (i = 0; i < RX_BATCH_SAMPLES; i = i + 1) begin
+            global_idx = batch_id * RX_BATCH_SAMPLES + i;
+            data_val   = global_idx[31:0];
 
-            send_udp_byte(re_val[7:0],   1'b0);
-            send_udp_byte(re_val[15:8],  1'b0);
-            send_udp_byte(re_val[23:16], 1'b0);
-            send_udp_byte(re_val[31:24], 1'b0);
-
-            send_udp_byte(im_val[7:0],   1'b0);
-            send_udp_byte(im_val[15:8],  1'b0);
-            send_udp_byte(im_val[23:16], 1'b0);
-            send_udp_byte(im_val[31:24], (i == 127));
+            send_udp_byte(data_val[7:0],   1'b0);
+            send_udp_byte(data_val[15:8],  1'b0);
+            send_udp_byte(data_val[23:16], 1'b0);
+            send_udp_byte(data_val[31:24], (i == RX_BATCH_SAMPLES-1));
         end
+    end
+    endtask
 
-        @(posedge dut.clk_100mhz);
-        dut.eth_io.tb_udp_rx_tvalid <= 1'b0;
-        dut.eth_io.tb_udp_rx_tlast  <= 1'b0;
+    task automatic wait_for_tx_packets(input int exp_packets, input int timeout_cycles, output bit ok);
+        int i;
+    begin
+        ok = 0;
+        for (i = 0; i < timeout_cycles; i = i + 1) begin
+            @(posedge dut.clk_100mhz);
+            if ((tx_pkts.size() >= exp_packets) &&
+                (pending_hdr_q.size() == 0) &&
+                (!active_pkt_open)) begin
+                ok = 1;
+                return;
+            end
+        end
+    end
+    endtask
+
+    task automatic check_single_packet_payload(
+        input int pkt_idx,
+        input logic [9:0] exp_tx_row_id
+    );
+        int s;
+        int base;
+        int global_idx;
+        logic [31:0] hdr_word;
+        logic [31:0] exp_hdr_word;
+        logic [31:0] got_data;
+        logic [31:0] exp_data;
+    begin
+        fatal_if_fail(pkt_idx < tx_pkts.size(), $sformatf("packet %0d captured", pkt_idx));
+        fatal_if_fail(tx_pkts[pkt_idx].size() == BYTES_PER_PACKET,
+                      $sformatf("packet %0d has %0d bytes", pkt_idx, BYTES_PER_PACKET));
+
+        hdr_word     = bytes_to_u32_le(tx_pkts[pkt_idx][0], tx_pkts[pkt_idx][1], tx_pkts[pkt_idx][2], tx_pkts[pkt_idx][3]);
+        exp_hdr_word = expected_tx_header_word(exp_tx_row_id, pkt_idx[1:0]);
+
+        expect_local(hdr_word == exp_hdr_word,
+                     $sformatf("packet %0d header matches tx_row=%0d batch=%0d",
+                               pkt_idx, exp_tx_row_id, pkt_idx[1:0]));
+
+        for (s = 0; s < TX_BATCH_SAMPLES; s = s + 1) begin
+            base       = 4 + (s * 4);
+            global_idx = pkt_idx * TX_BATCH_SAMPLES + s;
+            got_data   = bytes_to_u32_le(tx_pkts[pkt_idx][base+0],
+                                         tx_pkts[pkt_idx][base+1],
+                                         tx_pkts[pkt_idx][base+2],
+                                         tx_pkts[pkt_idx][base+3]);
+
+            // decimator keeps even input samples: 0,2,4,...,1022
+            exp_data = (global_idx * 2);
+
+            expect_local(got_data == exp_data,
+                         $sformatf("packet %0d sample %0d data correct", pkt_idx, s));
+        end
+    end
+    endtask
+
+    task automatic check_row_tx(
+        input logic [9:0]  exp_tx_row_id,
+        input logic [31:0] exp_dest_ip,
+        input logic [15:0] exp_dest_port
+    );
+        int i;
+    begin
+        expect_local(tx_hdr_q.size() == TX_PACKETS_PER_ROW, "saw 2 TX headers");
+        expect_local(tx_pkts.size()  == TX_PACKETS_PER_ROW, "captured 2 TX packets");
+
+        for (i = 0; i < tx_hdr_q.size(); i = i + 1) begin
+            expect_local(tx_hdr_q[i].dest_ip   == exp_dest_ip,   $sformatf("packet %0d dest IP correct", i));
+            expect_local(tx_hdr_q[i].src_port  == APP_UDP_PORT,  $sformatf("packet %0d src port correct", i));
+            expect_local(tx_hdr_q[i].dest_port == exp_dest_port, $sformatf("packet %0d dest port correct", i));
+            expect_local(tx_hdr_q[i].length    == BYTES_PER_PACKET, $sformatf("packet %0d length correct", i));
+
+            check_single_packet_payload(i, exp_tx_row_id);
+        end
     end
     endtask
 
     // ========================================================================
-    // Main sequence
+    // Reset helper
     // ========================================================================
-    initial begin
-        reset_btn    = 1'b0;
-        rgmii_rd     = 4'h0;
-        rgmii_rx_ctl = 1'b0;
-        rgmii_rxc    = 1'b0;
-        my_btns      = 4'h0;
+    task automatic reset_top;
+    begin
+        reset_btn    <= 1'b0;
+        my_btns      <= 4'h0;
+        rgmii_rd     <= 4'h0;
+        rgmii_rx_ctl <= 1'b0;
+        rgmii_rxc    <= 1'b0;
 
-        // hold reset, then release
-        #50;
-        reset_btn = 1'b1;
+        dut.eth_io.tb_udp_rx_hdr_valid <= 1'b0;
+        dut.eth_io.tb_udp_rx_src_ip    <= 32'd0;
+        dut.eth_io.tb_udp_rx_src_port  <= 16'd0;
+        dut.eth_io.tb_udp_rx_dest_port <= 16'd0;
+        dut.eth_io.tb_udp_rx_tdata     <= 8'd0;
+        dut.eth_io.tb_udp_rx_tvalid    <= 1'b0;
+        dut.eth_io.tb_udp_rx_tlast     <= 1'b0;
 
-        // wait for PLL lock and PHY reset delay
+        repeat (10) @(posedge osc_clk);
+        reset_btn <= 1'b1;
+
         wait (dut.pll_locked == 1'b1);
-        wait_clk100(260);
+        wait_clk100(20);
+        clear_tx_capture();
+    end
+    endtask
+
+    // ========================================================================
+    // Main
+    // ========================================================================
+    bit ok;
+
+    initial begin
+        reset_top();
 
         expect_local(dut.pll_locked == 1'b1, "PLL locked");
         expect_local(phy_rst_n == 1'b1, "PHY reset released");
         expect_local(my_led[0] == 1'b1, "LED0 reflects pll_locked");
         expect_local(my_led[1] == 1'b1, "LED1 reflects phy_rst_n");
 
-        // --------------------------------------------------------------------
-        // TEST 1: Wrong port ignored
-        // --------------------------------------------------------------------
-        dut.eth_io.clear_tx_counters();
+        // TEST1: wrong port ignored
+        clear_tx_capture();
         send_app_packet(10'd3, 2'd0, 32'hC0A80A63, 16'd6000, 16'd5002);
         wait_clk100(300);
+        expect_local(tx_hdr_q.size() == 0, "wrong-port packet produced no TX headers");
+        expect_local(tx_pkts.size()  == 0, "wrong-port packet produced no TX packets");
 
-        expect_local(dut.eth_io.tx_hdr_count == 0, "wrong-port packet produced no TX headers");
-        expect_local(dut.eth_io.tx_byte_count == 0, "wrong-port packet produced no TX bytes");
-
-        // --------------------------------------------------------------------
-        // TEST 2: One full row end-to-end
-        // --------------------------------------------------------------------
-        dut.eth_io.clear_tx_counters();
+        // TEST2: one full row end-to-end
+        clear_tx_capture();
+        reset_top();
 
         send_app_packet(10'd3, 2'd0, 32'hC0A80A63, 16'd6000, 16'd5001);
-        idle_udp(10);
+        idle_udp(3);
         send_app_packet(10'd3, 2'd1, 32'hC0A80A63, 16'd6000, 16'd5001);
-        idle_udp(10);
+        idle_udp(3);
         send_app_packet(10'd3, 2'd2, 32'hC0A80A63, 16'd6000, 16'd5001);
-        idle_udp(10);
+        idle_udp(3);
         send_app_packet(10'd3, 2'd3, 32'hC0A80A63, 16'd6000, 16'd5001);
 
-        wait_clk100(15000);
+        wait_for_tx_packets(2, 50000, ok);
+        fatal_if_fail(ok, "received all 2 TX packets");
+        check_row_tx(10'd0, 32'hC0A80A63, 16'd6000);
 
-        expect_local(dut.eth_io.tx_hdr_count  == 4,    "four TX headers observed");
-        expect_local(dut.eth_io.tx_tlast_count == 4,   "four TX packet ends observed");
-        expect_local(dut.eth_io.tx_byte_count == 4112, "4112 TX bytes observed");
-        expect_local(dut.eth_io.first_tx_dest_ip   == 32'hC0A80A63, "reply dest IP correct");
-        expect_local(dut.eth_io.first_tx_src_port  == 16'd5001,     "reply src port correct");
-        expect_local(dut.eth_io.first_tx_dest_port == 16'd6000,     "reply dest port correct");
-        expect_local(dut.eth_io.first_tx_length    == 16'd1028,     "reply UDP payload length correct");
-
-        // LED smoke checks
-        expect_local(my_led[3] == 1'b0 || my_led[3] == 1'b1, "LED3 driven");
-        expect_local(my_led[4] == 1'b0 || my_led[4] == 1'b1, "LED4 driven");
-        expect_local(my_led[5] == 1'b0 || my_led[5] == 1'b1, "LED5 driven");
-
-        // button passthrough to LED6
+        // LED smoke
         my_btns[0] = 1'b1;
         wait_clk100(2);
-        expect_local(my_led[6] == 1'b1, "LED6 reflects button 0");
+        expect_local(my_led[6] == 1'b1, "LED6 reflects button 0 high");
         my_btns[0] = 1'b0;
         wait_clk100(2);
-        expect_local(my_led[6] == 1'b0, "LED6 clears with button 0");
+        expect_local(my_led[6] == 1'b0, "LED6 reflects button 0 low");
 
-        $display("=================================");
+        $display("==================================================");
         $display("TOTAL PASS = %0d", pass);
         $display("TOTAL FAIL = %0d", fail);
-        $display("=================================");
+        $display("==================================================");
 
         $finish;
     end
 
 endmodule
 
-// ============================================================================
-// Stub: clk_wiz_main
-// Simple simulation-friendly clock wizard model
-// ============================================================================
+
+// =============================================================================
+// Simulation stub: clk_wiz_main
+// =============================================================================
 module clk_wiz_main (
     input  wire clk_in1,
     output wire clk_mn,
@@ -291,54 +494,14 @@ module clk_wiz_main (
     end
 endmodule
 
-// ============================================================================
-// Stub: dsp_core_top
-// Latency-2 DSP model: out_re = in_re + 1, out_im = in_im + 2
-// ============================================================================
-module dsp_core_top (
-    input  wire        clk,
-    input  wire        rst,
-    input  wire        in_valid,
-    input  wire        in_row_start,
-    input  wire [31:0] in_re,
-    input  wire [31:0] in_im,
-    output reg         out_valid,
-    output reg  [31:0] out_re,
-    output reg  [31:0] out_im
-);
-    reg [31:0] re0, re1;
-    reg [31:0] im0, im1;
-    reg        v0, v1;
 
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            re0 <= 0; re1 <= 0;
-            im0 <= 0; im1 <= 0;
-            v0  <= 0; v1  <= 0;
-            out_valid <= 0;
-            out_re    <= 0;
-            out_im    <= 0;
-        end else begin
-            v0  <= in_valid;
-            re0 <= in_re + 32'd1;
-            im0 <= in_im + 32'd2;
-
-            v1  <= v0;
-            re1 <= re0;
-            im1 <= im0;
-
-            out_valid <= v1;
-            out_re    <= re1;
-            out_im    <= im1;
-        end
-    end
-endmodule
-
-// ============================================================================
-// Stub: eth_io_top
-// Simulation transport shim. Does not model Ethernet.
-// Exposes task-driven UDP RX stimulus and captures UDP TX traffic.
-// ============================================================================
+// =============================================================================
+// Simulation stub: eth_io_top
+//
+// This is a transport shim for top-level simulation only.
+// It does not model Ethernet. It simply exposes UDP-facing ports and allows
+// the testbench to drive/capture them hierarchically.
+// =============================================================================
 module eth_io_top (
     input  wire        reset_btn,
     input  wire [3:0]  rgmii_rd,
@@ -355,34 +518,32 @@ module eth_io_top (
     input  wire        axis_reset,
 
     output wire        udp_rx_hdr_valid,
-    input  wire        udp_rx_hdr_ready,
     output wire [31:0] udp_rx_src_ip,
     output wire [15:0] udp_rx_src_port,
     output wire [15:0] udp_rx_dest_port,
     output wire [7:0]  udp_rx_tdata,
     output wire        udp_rx_tvalid,
-    input  wire        udp_rx_tready,
     output wire        udp_rx_tlast,
+    input  wire        udp_rx_hdr_ready,
+    input  wire        udp_rx_tready,
 
     input  wire        udp_tx_hdr_valid,
-    output wire        udp_tx_hdr_ready,
     input  wire [31:0] udp_tx_dest_ip,
     input  wire [15:0] udp_tx_src_port,
     input  wire [15:0] udp_tx_dest_port,
     input  wire [15:0] udp_tx_length,
     input  wire [7:0]  udp_tx_tdata,
     input  wire        udp_tx_tvalid,
-    output wire        udp_tx_tready,
-    input  wire        udp_tx_tlast
+    input  wire        udp_tx_tlast,
+    output wire        udp_tx_hdr_ready,
+    output wire        udp_tx_tready
 );
 
-    // unused board-facing pins in stub
     assign rgmii_td     = 4'h0;
     assign rgmii_tx_ctl = 1'b0;
     assign rgmii_txc    = 1'b0;
     assign phy_rst_n    = 1'b1;
 
-    // TB-driven RX stimulus
     reg        tb_udp_rx_hdr_valid;
     reg [31:0] tb_udp_rx_src_ip;
     reg [15:0] tb_udp_rx_src_port;
@@ -399,62 +560,18 @@ module eth_io_top (
     assign udp_rx_tvalid    = tb_udp_rx_tvalid;
     assign udp_rx_tlast     = tb_udp_rx_tlast;
 
-    // Always ready to accept TX in this stub
     assign udp_tx_hdr_ready = 1'b1;
     assign udp_tx_tready    = 1'b1;
 
-    // Capture TX traffic
-    integer tx_hdr_count;
-    integer tx_byte_count;
-    integer tx_tlast_count;
-    reg [31:0] first_tx_dest_ip;
-    reg [15:0] first_tx_src_port;
-    reg [15:0] first_tx_dest_port;
-    reg [15:0] first_tx_length;
-
-    task clear_tx_counters;
-    begin
-        tx_hdr_count       = 0;
-        tx_byte_count      = 0;
-        tx_tlast_count     = 0;
-        first_tx_dest_ip   = 32'd0;
-        first_tx_src_port  = 16'd0;
-        first_tx_dest_port = 16'd0;
-        first_tx_length    = 16'd0;
-    end
-    endtask
-
-    always @(posedge clk_100mhz) begin
-        if (axis_reset) begin
-            clear_tx_counters();
-        end else begin
-            if (udp_tx_hdr_valid && udp_tx_hdr_ready) begin
-                tx_hdr_count <= tx_hdr_count + 1;
-                if (tx_hdr_count == 0) begin
-                    first_tx_dest_ip   <= udp_tx_dest_ip;
-                    first_tx_src_port  <= udp_tx_src_port;
-                    first_tx_dest_port <= udp_tx_dest_port;
-                    first_tx_length    <= udp_tx_length;
-                end
-            end
-
-            if (udp_tx_tvalid && udp_tx_tready) begin
-                tx_byte_count <= tx_byte_count + 1;
-                if (udp_tx_tlast)
-                    tx_tlast_count <= tx_tlast_count + 1;
-            end
-        end
-    end
-
     initial begin
-        tb_udp_rx_hdr_valid = 0;
-        tb_udp_rx_src_ip    = 0;
-        tb_udp_rx_src_port  = 0;
-        tb_udp_rx_dest_port = 0;
-        tb_udp_rx_tdata     = 0;
-        tb_udp_rx_tvalid    = 0;
-        tb_udp_rx_tlast     = 0;
-        clear_tx_counters();
+        tb_udp_rx_hdr_valid = 1'b0;
+        tb_udp_rx_src_ip    = 32'd0;
+        tb_udp_rx_src_port  = 16'd0;
+        tb_udp_rx_dest_port = 16'd0;
+        tb_udp_rx_tdata     = 8'd0;
+        tb_udp_rx_tvalid    = 1'b0;
+        tb_udp_rx_tlast     = 1'b0;
     end
 
 endmodule
+

@@ -42,13 +42,13 @@ module octogen_top (
     wire pll_locked;
 
     clk_wiz_main clk_gen (
-        .clk_in1(osc_clk),
-        .clk_mn(clk_100mhz),
-        .clk_gtx(clk_125mhz),
-        .clk_spd(clk_200mhz),
-        .clk_gtx2(),
-        .reset(~reset_btn),
-        .locked(pll_locked)
+        .clk_in1 (osc_clk),
+        .clk_mn  (clk_100mhz),
+        .clk_gtx (clk_125mhz),
+        .clk_spd (clk_200mhz),
+        //.clk_gtx2(),
+        .reset   (~reset_btn),
+        .locked  (pll_locked)
     );
 
     wire axis_reset = ~pll_locked;
@@ -82,12 +82,13 @@ module octogen_top (
     // ========================================================================
     wire        dsp_in_valid;
     wire        dsp_in_row_start;
-    wire [31:0] dsp_in_re;
-    wire [31:0] dsp_in_im;
+    wire [31:0] dsp_in_data;
 
     wire        dsp_out_valid;
-    wire [31:0] dsp_out_re;
-    wire [31:0] dsp_out_im;
+    wire [31:0] dsp_out_data;
+
+    wire        dsp_busy;
+    wire        dsp_row_done;
 
     // ========================================================================
     // Simple activity counter for LED heartbeat
@@ -105,97 +106,98 @@ module octogen_top (
     // Ethernet / UDP transport
     // ========================================================================
     eth_io_top eth_io (
-        .reset_btn(reset_btn),
+        .reset_btn       (reset_btn),
 
-        .rgmii_rd(rgmii_rd),
-        .rgmii_rx_ctl(rgmii_rx_ctl),
-        .rgmii_rxc(rgmii_rxc),
-        .rgmii_td(rgmii_td),
-        .rgmii_tx_ctl(rgmii_tx_ctl),
-        .rgmii_txc(rgmii_txc),
+        .rgmii_rd        (rgmii_rd),
+        .rgmii_rx_ctl    (rgmii_rx_ctl),
+        .rgmii_rxc       (rgmii_rxc),
+        .rgmii_td        (rgmii_td),
+        .rgmii_tx_ctl    (rgmii_tx_ctl),
+        .rgmii_txc       (rgmii_txc),
 
-        .osc_clk(osc_clk),
-        .phy_rst_n(phy_rst_n),
-        .clk_100mhz(clk_100mhz),
-        .clk_125mhz(clk_125mhz),
-        .clk_200mhz(clk_200mhz),
-        .axis_reset(axis_reset),
+        .osc_clk         (osc_clk),
+        .phy_rst_n       (phy_rst_n),
+        .clk_100mhz      (clk_100mhz),
+        .clk_125mhz      (clk_125mhz),
+        .clk_200mhz      (clk_200mhz),
+        .axis_reset      (axis_reset),
 
         .udp_rx_hdr_valid(udp_rx_hdr_valid),
-        .udp_rx_hdr_ready(udp_rx_hdr_ready),
-        .udp_rx_src_ip(udp_rx_src_ip),
-        .udp_rx_src_port(udp_rx_src_port),
+        .udp_rx_src_ip   (udp_rx_src_ip),
+        .udp_rx_src_port (udp_rx_src_port),
         .udp_rx_dest_port(udp_rx_dest_port),
-        .udp_rx_tdata(udp_rx_tdata),
-        .udp_rx_tvalid(udp_rx_tvalid),
-        .udp_rx_tready(udp_rx_tready),
-        .udp_rx_tlast(udp_rx_tlast),
+        .udp_rx_tdata    (udp_rx_tdata),
+        .udp_rx_tvalid   (udp_rx_tvalid),
+        .udp_rx_tlast    (udp_rx_tlast),
+        .udp_rx_hdr_ready(udp_rx_hdr_ready),
+        .udp_rx_tready   (udp_rx_tready),
 
         .udp_tx_hdr_valid(udp_tx_hdr_valid),
-        .udp_tx_hdr_ready(udp_tx_hdr_ready),
-        .udp_tx_dest_ip(udp_tx_dest_ip),
-        .udp_tx_src_port(udp_tx_src_port),
+        .udp_tx_dest_ip  (udp_tx_dest_ip),
+        .udp_tx_src_port (udp_tx_src_port),
         .udp_tx_dest_port(udp_tx_dest_port),
-        .udp_tx_length(udp_tx_length),
-        .udp_tx_tdata(udp_tx_tdata),
-        .udp_tx_tvalid(udp_tx_tvalid),
-        .udp_tx_tready(udp_tx_tready),
-        .udp_tx_tlast(udp_tx_tlast)
+        .udp_tx_length   (udp_tx_length),
+        .udp_tx_tdata    (udp_tx_tdata),
+        .udp_tx_tvalid   (udp_tx_tvalid),
+        .udp_tx_tlast    (udp_tx_tlast),
+        .udp_tx_hdr_ready(udp_tx_hdr_ready),
+        .udp_tx_tready   (udp_tx_tready)
     );
 
     // ========================================================================
     // Application processing
     // ========================================================================
     udp_processing_top udp_proc (
-        .clk(clk_100mhz),
-        .rst(axis_reset),
+        .clk             (clk_100mhz),
+        .rst             (axis_reset),
 
         .udp_rx_hdr_valid(udp_rx_hdr_valid),
         .udp_rx_hdr_ready(udp_rx_hdr_ready),
-        .udp_rx_src_ip(udp_rx_src_ip),
-        .udp_rx_src_port(udp_rx_src_port),
+        .udp_rx_src_ip   (udp_rx_src_ip),
+        .udp_rx_src_port (udp_rx_src_port),
         .udp_rx_dest_port(udp_rx_dest_port),
-        .udp_rx_tdata(udp_rx_tdata),
-        .udp_rx_tvalid(udp_rx_tvalid),
-        .udp_rx_tready(udp_rx_tready),
-        .udp_rx_tlast(udp_rx_tlast),
+        .udp_rx_tdata    (udp_rx_tdata),
+        .udp_rx_tvalid   (udp_rx_tvalid),
+        .udp_rx_tready   (udp_rx_tready),
+        .udp_rx_tlast    (udp_rx_tlast),
 
         .udp_tx_hdr_valid(udp_tx_hdr_valid),
         .udp_tx_hdr_ready(udp_tx_hdr_ready),
-        .udp_tx_dest_ip(udp_tx_dest_ip),
-        .udp_tx_src_port(udp_tx_src_port),
+        .udp_tx_dest_ip  (udp_tx_dest_ip),
+        .udp_tx_src_port (udp_tx_src_port),
         .udp_tx_dest_port(udp_tx_dest_port),
-        .udp_tx_length(udp_tx_length),
-        .udp_tx_tdata(udp_tx_tdata),
-        .udp_tx_tvalid(udp_tx_tvalid),
-        .udp_tx_tready(udp_tx_tready),
-        .udp_tx_tlast(udp_tx_tlast),
+        .udp_tx_length   (udp_tx_length),
+        .udp_tx_tdata    (udp_tx_tdata),
+        .udp_tx_tvalid   (udp_tx_tvalid),
+        .udp_tx_tready   (udp_tx_tready),
+        .udp_tx_tlast    (udp_tx_tlast),
 
-        .dsp_in_valid(dsp_in_valid),
+        .dsp_in_valid    (dsp_in_valid),
         .dsp_in_row_start(dsp_in_row_start),
-        .dsp_in_re(dsp_in_re),
-        .dsp_in_im(dsp_in_im),
+        .dsp_in_data     (dsp_in_data),
 
-        .dsp_out_valid(dsp_out_valid),
-        .dsp_out_re(dsp_out_re),
-        .dsp_out_im(dsp_out_im)
+        .dsp_out_valid   (dsp_out_valid),
+        .dsp_out_data    (dsp_out_data)
     );
 
     // ========================================================================
     // DSP core
     // ========================================================================
-    dsp_core_top dsp_core (
-        .clk(clk_100mhz),
-        .rst(axis_reset),
+    dsp_core_top #(
+        .PIPELINE_LATENCY(8)
+    ) dsp_core (
+        .clk         (clk_100mhz),
+        .rst         (axis_reset),
 
-        .in_valid(dsp_in_valid),
+        .in_valid    (dsp_in_valid),
         .in_row_start(dsp_in_row_start),
-        .in_re(dsp_in_re),
-        .in_im(dsp_in_im),
+        .in_data     (dsp_in_data),
 
-        .out_valid(dsp_out_valid),
-        .out_re(dsp_out_re),
-        .out_im(dsp_out_im)
+        .out_valid   (dsp_out_valid),
+        .out_data    (dsp_out_data),
+
+        .busy        (dsp_busy),
+        .row_done    (dsp_row_done)
     );
 
     // ========================================================================
