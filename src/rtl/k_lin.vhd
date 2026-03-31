@@ -195,7 +195,6 @@ architecture rtl of k_lin is
   signal capture_bank    : integer range 0 to N_BANKS-1 := 0;
   signal capture_active  : std_logic := '0';
   signal capture_count   : unsigned(ADDR_W-1 downto 0) := (others => '0');
-
   signal overflow_int    : std_logic := '0';
 
   -- Issue scheduler
@@ -244,7 +243,7 @@ architecture rtl of k_lin is
   signal bank_cal_pipe  : bank_pipe_arr_t(0 to COEF_LAT) := (others => 0);
   signal idx_cal_pipe   : idx_pipe_arr_t(0 to COEF_LAT) := (others => (others => '0'));
 
-  -- Sample request stage (NEW)
+  -- Registered sample request stage
   signal req_valid : std_logic := '0';
   signal req_start : std_logic := '0';
   signal req_last  : std_logic := '0';
@@ -428,6 +427,8 @@ begin
     variable issue_last_now  : std_logic;
     variable issue_bank_now  : integer range 0 to N_BANKS-1;
     variable issue_idx_now   : unsigned(ADDR_W-1 downto 0);
+
+    variable cal_keepalive_now : std_logic;
   begin
     if rising_edge(clk) then
       if rst = '1' then
@@ -521,7 +522,9 @@ begin
           end if;
         end loop;
 
-        cal_read_enable <= '0';
+        valid_s0 <= '0';
+        start_s0 <= '0';
+        last_s0  <= '0';
 
         issue_valid_now := '0';
         issue_start_now := '0';
@@ -529,11 +532,7 @@ begin
         issue_bank_now  := 0;
         issue_idx_now   := (others => '0');
 
-        valid_s0 <= '0';
-        start_s0 <= '0';
-        last_s0  <= '0';
-
-        overflow_int <= overflow_int;
+        cal_keepalive_now := '0';
         bs_next := bank_state;
 
         --------------------------------------------------------------------
@@ -649,8 +648,7 @@ begin
           bank_s0  <= issue_bank_now;
           idx_s0   <= issue_idx_now;
 
-          cal_read_enable <= '1';
-          cal_read_addr   <= std_logic_vector(issue_idx_now);
+          cal_read_addr <= std_logic_vector(issue_idx_now);
 
           if next_issue_idx = to_unsigned(ASCAN_LEN-1, ADDR_W) then
             found_ready := '0';
@@ -685,6 +683,21 @@ begin
         issue_idx    <= next_issue_idx;
 
         --------------------------------------------------------------------
+        -- Calibration keepalive enable
+        --------------------------------------------------------------------
+        if issue_valid_now = '1' then
+          cal_keepalive_now := '1';
+        end if;
+
+        for i in 0 to COEF_LAT-1 loop
+          if valid_cal_pipe(i) = '1' then
+            cal_keepalive_now := '1';
+          end if;
+        end loop;
+
+        cal_read_enable <= cal_keepalive_now;
+
+        --------------------------------------------------------------------
         -- Pipeline through calibration latency
         --------------------------------------------------------------------
         for i in COEF_LAT downto 1 loop
@@ -702,7 +715,7 @@ begin
         idx_cal_pipe(0)   <= issue_idx_now;
 
         --------------------------------------------------------------------
-        -- NEW request stage
+        -- Registered sample request stage
         --------------------------------------------------------------------
         req_valid <= '0';
         if valid_cal_pipe(COEF_LAT) = '1' then
@@ -724,7 +737,7 @@ begin
         end if;
 
         --------------------------------------------------------------------
-        -- Launch sample BRAM read from request stage
+        -- Launch sample read from request stage
         --------------------------------------------------------------------
         valid_samp_pipe(0) <= '0';
         if req_valid = '1' then

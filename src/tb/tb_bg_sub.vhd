@@ -1,6 +1,6 @@
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
-use ieee.numeric_std.all;
+use IEEE.NUMERIC_STD.ALL;
 
 entity tb_bg_sub is
 end tb_bg_sub;
@@ -25,7 +25,7 @@ architecture Behavioral of tb_bg_sub is
     signal bg_wr_addr         : std_logic_vector(9 downto 0) := (others => '0');
     signal bg_wr_data         : std_logic_vector(31 downto 0) := (others => '0');
 
-    -- outputs
+    -- DUT outputs
     signal str_out            : std_logic_vector(31 downto 0);
     signal str_out_valid      : std_logic;
     signal start_of_ascan_out : std_logic;
@@ -37,8 +37,14 @@ architecture Behavioral of tb_bg_sub is
 
 begin
 
+    --------------------------------------------------------------------
+    -- Clock
+    --------------------------------------------------------------------
     clk <= not clk after CLK_PERIOD/2;
 
+    --------------------------------------------------------------------
+    -- DUT
+    --------------------------------------------------------------------
     dut : entity work.bg_sub
         generic map (
             ASCAN_LEN => 1024,
@@ -64,11 +70,25 @@ begin
 
     --------------------------------------------------------------------
     -- Stimulus
+    --
+    -- Phase 1: write ramp into BRAM => bg[i] = i
+    -- Phase 2: stream 3 back-to-back A-scans
+    --
+    -- Input patterns:
+    --   scan 1: x[i] = 1000 + i
+    --   scan 2: x[i] = 2000 + i
+    --   scan 3: x[i] = 3000 + i
+    --
+    -- Expected outputs:
+    --   scan 1: 1000
+    --   scan 2: 2000
+    --   scan 3: 3000
     --------------------------------------------------------------------
     stim : process
         variable i : integer;
         variable s : integer;
     begin
+        -- defaults
         rst            <= '1';
         str_in         <= (others => '0');
         str_in_valid   <= '0';
@@ -84,14 +104,14 @@ begin
         wait for 2*CLK_PERIOD;
 
         ----------------------------------------------------------------
-        -- Write 1024 ones into BRAM
+        -- Write ramp into BRAM: bg[i] = i
         ----------------------------------------------------------------
-        bg_wr_en   <= '1';
-        bg_wr_we   <= "1";
-        bg_wr_data <= to_slv32(1);
+        bg_wr_en <= '1';
+        bg_wr_we <= "1";
 
         for i in 0 to ASCAN_LEN-1 loop
             bg_wr_addr <= std_logic_vector(to_unsigned(i, 10));
+            bg_wr_data <= to_slv32(i);
             wait for CLK_PERIOD;
         end loop;
 
@@ -100,13 +120,10 @@ begin
         bg_wr_addr <= (others => '0');
         bg_wr_data <= (others => '0');
 
-        wait for 3*CLK_PERIOD;
+        wait for 4*CLK_PERIOD;
 
         ----------------------------------------------------------------
-        -- Stream NUM_SCANS A-scans back-to-back, no gap between scans
-        -- scan 1: 1000+i
-        -- scan 2: 2000+i
-        -- scan 3: 3000+i
+        -- Stream NUM_SCANS back-to-back A-scans, no gaps between scans
         ----------------------------------------------------------------
         str_in_valid <= '1';
 
@@ -118,16 +135,17 @@ begin
                     start_of_ascan <= '0';
                 end if;
 
-                str_in <= to_slv32((s+1)*1000 + i);
+                str_in <= to_slv32((s + 1) * 1000 + i);
                 wait for CLK_PERIOD;
             end loop;
         end loop;
 
+        -- stop stream
         str_in_valid   <= '0';
         start_of_ascan <= '0';
         str_in         <= (others => '0');
 
-        wait for 30*CLK_PERIOD;
+        wait for 40*CLK_PERIOD;
 
         assert false report "TB finished successfully" severity failure;
     end process;
@@ -140,21 +158,24 @@ begin
         variable scan_idx         : integer := 0;
         variable y_int            : integer;
         variable expected_y       : integer;
-        variable base_val         : integer;
+        variable expected_base    : integer;
+        variable total_outputs    : integer := 0;
     begin
         if rising_edge(clk) then
             if rst = '1' then
                 out_seen_in_scan := 0;
                 scan_idx         := 0;
+                total_outputs    := 0;
 
             else
                 if str_out_valid = '1' then
                     y_int := to_integer(signed(str_out));
 
-                    -- input base is 1000, 2000, 3000...
-                    base_val   := (scan_idx + 1) * 1000;
-                    expected_y := (base_val + out_seen_in_scan) - 1;
+                    expected_base := (scan_idx + 1) * 1000;
+                    expected_y    := expected_base;
 
+                    -- Data check:
+                    -- with bg[i]=i and x[i]=base+i, output should be constant = base
                     if y_int /= expected_y then
                         assert false
                             report "Mismatch in scan " & integer'image(scan_idx + 1) &
@@ -164,6 +185,7 @@ begin
                             severity failure;
                     end if;
 
+                    -- start_of_ascan_out should only pulse on first output of each scan
                     if out_seen_in_scan = 0 then
                         if start_of_ascan_out /= '1' then
                             assert false
@@ -182,6 +204,7 @@ begin
                     end if;
 
                     out_seen_in_scan := out_seen_in_scan + 1;
+                    total_outputs    := total_outputs + 1;
 
                     if out_seen_in_scan = ASCAN_LEN then
                         out_seen_in_scan := 0;
@@ -189,6 +212,7 @@ begin
                     end if;
 
                 else
+                    -- hygiene check
                     if start_of_ascan_out = '1' then
                         assert false
                             report "start_of_ascan_out asserted while str_out_valid = 0"

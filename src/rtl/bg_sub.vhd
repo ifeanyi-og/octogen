@@ -50,6 +50,8 @@ architecture Behavioral of bg_sub is
     signal soas_pipe : logic_pipe_t  := (others => '0');
 
     signal y : signed(31 downto 0);
+    
+    signal bg_rd_en : std_logic;
 
     component bgsub_blk_mem_gen is
         port (
@@ -73,6 +75,8 @@ begin
     --   Port A: runtime write port for background loading
     --   Port B: runtime read port for streaming subtraction
     --------------------------------------------------------------------
+    bg_rd_en <= not bg_wr_en;
+    
     u_bg_bram : bgsub_blk_mem_gen
         port map (
             -- Port A: exposed write side
@@ -84,7 +88,7 @@ begin
 
             -- Port B: internal read side
             clkb  => clk,
-            enb   => str_in_valid,
+            enb   => bg_rd_en,
             addrb => std_logic_vector(rd_addr),
             doutb => bg_dout
         );
