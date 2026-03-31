@@ -26,7 +26,7 @@ module calibration_loader (
     output reg         cal_error,
     output reg         cal_rejected_busy,
     output reg         cal_rejected_mode,
-    output reg  [7:0]  runtime_valid,
+    output reg  [7:0]  runtime_valid, 
 
     // background BRAM write interface (Port A)
     output reg         bg_wr_en,
@@ -77,9 +77,6 @@ module calibration_loader (
     output reg  [31:0] klin_e_wr_data
 );
 
-    // ------------------------------------------------------------
-    // Hardcoded calibration target IDs
-    // ------------------------------------------------------------
     `define CAL_BG_SUB  10'd0
     `define CAL_DISP_A  10'd20
     `define CAL_DISP_B  10'd21
@@ -106,12 +103,9 @@ module calibration_loader (
     reg [2:0] cur_target_idx;
     reg [9:0] cur_target_row_id;
     reg [1:0] cur_batch_id;
-    reg [7:0] sample_count;   // 0..255 within a batch
-    reg [9:0] wr_addr;        // current write address
+    reg [7:0] sample_count;
+    reg [9:0] wr_addr;
 
-    // ------------------------------------------------------------
-    // Helpers
-    // ------------------------------------------------------------
     function is_valid_cal_row;
         input [9:0] rid;
         begin
@@ -146,12 +140,39 @@ module calibration_loader (
         end
     endfunction
 
+    task automatic reset_transaction_state;
+    begin
+        cal_loading       <= 1'b0;
+        state             <= ST_IDLE;
+        cur_target_idx    <= 3'd0;
+        cur_target_row_id <= 10'd0;
+        cur_batch_id      <= 2'd0;
+        sample_count      <= 8'd0;
+        wr_addr           <= 10'd0;
+    end
+    endtask
+
+    task automatic abort_and_invalidate_current;
+    begin
+        cal_error <= 1'b1;
+        runtime_valid[cur_target_idx] <= 1'b0;
+        reset_transaction_state();
+    end
+    endtask
+
+    task automatic abort_and_invalidate_idx(input [2:0] idx);
+    begin
+        cal_error <= 1'b1;
+        runtime_valid[idx] <= 1'b0;
+        reset_transaction_state();
+    end
+    endtask
+
     wire active_sample = (state == ST_LOADING) && sample_valid;
     wire final_sample  = active_sample && (sample_count == 8'd255);
 
     // ------------------------------------------------------------
-    // Combinational write outputs
-    // This is the critical fix.
+    // combinational write outputs
     // ------------------------------------------------------------
     always @* begin
         bg_wr_en       = 1'b0;
@@ -202,56 +223,48 @@ module calibration_loader (
                     bg_wr_addr = wr_addr;
                     bg_wr_data = sample_data;
                 end
-
                 IDX_DISP_A: begin
                     disp_a_wr_en   = 1'b1;
                     disp_a_wr_we   = 1'b1;
                     disp_a_wr_addr = wr_addr;
                     disp_a_wr_data = sample_data;
                 end
-
                 IDX_DISP_B: begin
                     disp_b_wr_en   = 1'b1;
                     disp_b_wr_we   = 1'b1;
                     disp_b_wr_addr = wr_addr;
                     disp_b_wr_data = sample_data;
                 end
-
                 IDX_KLIN_A: begin
                     klin_a_wr_en   = 1'b1;
                     klin_a_wr_we   = 1'b1;
                     klin_a_wr_addr = wr_addr;
                     klin_a_wr_data = sample_data;
                 end
-
                 IDX_KLIN_B: begin
                     klin_b_wr_en   = 1'b1;
                     klin_b_wr_we   = 1'b1;
                     klin_b_wr_addr = wr_addr;
                     klin_b_wr_data = sample_data;
                 end
-
                 IDX_KLIN_C: begin
                     klin_c_wr_en   = 1'b1;
                     klin_c_wr_we   = 1'b1;
                     klin_c_wr_addr = wr_addr;
                     klin_c_wr_data = sample_data;
                 end
-
                 IDX_KLIN_D: begin
                     klin_d_wr_en   = 1'b1;
                     klin_d_wr_we   = 1'b1;
                     klin_d_wr_addr = wr_addr;
                     klin_d_wr_data = sample_data;
                 end
-
                 IDX_KLIN_E: begin
                     klin_e_wr_en   = 1'b1;
                     klin_e_wr_we   = 1'b1;
                     klin_e_wr_addr = wr_addr;
                     klin_e_wr_data = sample_data;
                 end
-
                 default: begin
                 end
             endcase
@@ -259,7 +272,7 @@ module calibration_loader (
     end
 
     // ------------------------------------------------------------
-    // Main FSM / counters
+    // FSM
     // ------------------------------------------------------------
     always @(posedge clk or posedge rst) begin
         if (rst) begin
@@ -282,66 +295,26 @@ module calibration_loader (
             cal_rejected_busy <= 1'b0;
             cal_rejected_mode <= 1'b0;
 
-            // ----------------------------------------------------
-            // Header handling
-            // ----------------------------------------------------
             if (hdr_valid) begin
                 if (!pkt_is_cal || (pkt_msg_type != 8'h02)) begin
-                    if (state != ST_IDLE) begin
-                        cal_error         <= 1'b1;
-                        cal_loading       <= 1'b0;
-                        state             <= ST_IDLE;
-                        cur_target_idx    <= 3'd0;
-                        cur_target_row_id <= 10'd0;
-                        cur_batch_id      <= 2'd0;
-                        sample_count      <= 8'd0;
-                        wr_addr           <= 10'd0;
-                    end
+                    if (state != ST_IDLE)
+                        abort_and_invalidate_current();
                 end else if (!allow_cal) begin
                     cal_rejected_mode <= 1'b1;
-                    if (state != ST_IDLE) begin
-                        cal_error         <= 1'b1;
-                        cal_loading       <= 1'b0;
-                        state             <= ST_IDLE;
-                        cur_target_idx    <= 3'd0;
-                        cur_target_row_id <= 10'd0;
-                        cur_batch_id      <= 2'd0;
-                        sample_count      <= 8'd0;
-                        wr_addr           <= 10'd0;
-                    end
+                    if (state != ST_IDLE)
+                        abort_and_invalidate_current();
                 end else if (dsp_busy) begin
                     cal_rejected_busy <= 1'b1;
-                    if (state != ST_IDLE) begin
-                        cal_error         <= 1'b1;
-                        cal_loading       <= 1'b0;
-                        state             <= ST_IDLE;
-                        cur_target_idx    <= 3'd0;
-                        cur_target_row_id <= 10'd0;
-                        cur_batch_id      <= 2'd0;
-                        sample_count      <= 8'd0;
-                        wr_addr           <= 10'd0;
-                    end
+                    if (state != ST_IDLE)
+                        abort_and_invalidate_current();
                 end else if (!is_valid_cal_row(row_id)) begin
-                    cal_error         <= 1'b1;
-                    cal_loading       <= 1'b0;
-                    state             <= ST_IDLE;
-                    cur_target_idx    <= 3'd0;
-                    cur_target_row_id <= 10'd0;
-                    cur_batch_id      <= 2'd0;
-                    sample_count      <= 8'd0;
-                    wr_addr           <= 10'd0;
+                    cal_error <= 1'b1;
+                    reset_transaction_state();
                 end else begin
                     case (state)
                         ST_IDLE: begin
                             if (batch_id != 2'd0) begin
-                                cal_error         <= 1'b1;
-                                cal_loading       <= 1'b0;
-                                state             <= ST_IDLE;
-                                cur_target_idx    <= 3'd0;
-                                cur_target_row_id <= 10'd0;
-                                cur_batch_id      <= 2'd0;
-                                sample_count      <= 8'd0;
-                                wr_addr           <= 10'd0;
+                                abort_and_invalidate_idx(cal_row_to_idx(row_id));
                             end else begin
                                 cur_target_row_id <= row_id;
                                 cur_target_idx    <= cal_row_to_idx(row_id);
@@ -356,14 +329,7 @@ module calibration_loader (
                         ST_WAITHDR: begin
                             if ((row_id != cur_target_row_id) ||
                                 (batch_id != (cur_batch_id + 2'd1))) begin
-                                cal_error         <= 1'b1;
-                                cal_loading       <= 1'b0;
-                                state             <= ST_IDLE;
-                                cur_target_idx    <= 3'd0;
-                                cur_target_row_id <= 10'd0;
-                                cur_batch_id      <= 2'd0;
-                                sample_count      <= 8'd0;
-                                wr_addr           <= 10'd0;
+                                abort_and_invalidate_current();
                             end else begin
                                 cur_batch_id <= batch_id;
                                 sample_count <= 8'd0;
@@ -374,69 +340,33 @@ module calibration_loader (
                         end
 
                         ST_LOADING: begin
-                            cal_error         <= 1'b1;
-                            cal_loading       <= 1'b0;
-                            state             <= ST_IDLE;
-                            cur_target_idx    <= 3'd0;
-                            cur_target_row_id <= 10'd0;
-                            cur_batch_id      <= 2'd0;
-                            sample_count      <= 8'd0;
-                            wr_addr           <= 10'd0;
+                            abort_and_invalidate_current();
                         end
 
                         default: begin
-                            cal_error         <= 1'b1;
-                            cal_loading       <= 1'b0;
-                            state             <= ST_IDLE;
-                            cur_target_idx    <= 3'd0;
-                            cur_target_row_id <= 10'd0;
-                            cur_batch_id      <= 2'd0;
-                            sample_count      <= 8'd0;
-                            wr_addr           <= 10'd0;
+                            abort_and_invalidate_current();
                         end
                     endcase
                 end
             end
 
-            // ----------------------------------------------------
-            // Sample handling
-            // ----------------------------------------------------
             if (state == ST_LOADING) begin
                 if (sample_valid) begin
                     if (!final_sample) begin
-                        // non-final sample must not end batch
                         if (sample_last || batch_valid) begin
-                            cal_error         <= 1'b1;
-                            cal_loading       <= 1'b0;
-                            state             <= ST_IDLE;
-                            cur_target_idx    <= 3'd0;
-                            cur_target_row_id <= 10'd0;
-                            cur_batch_id      <= 2'd0;
-                            sample_count      <= 8'd0;
-                            wr_addr           <= 10'd0;
+                            abort_and_invalidate_current();
                         end else begin
                             sample_count <= sample_count + 8'd1;
                             wr_addr      <= wr_addr + 10'd1;
                         end
                     end else begin
-                        // final legal sample must assert both markers
                         if (!sample_last || !batch_valid) begin
-                            cal_error         <= 1'b1;
-                            cal_loading       <= 1'b0;
-                            state             <= ST_IDLE;
-                            cur_target_idx    <= 3'd0;
-                            cur_target_row_id <= 10'd0;
-                            cur_batch_id      <= 2'd0;
-                            sample_count      <= 8'd0;
-                            wr_addr           <= 10'd0;
+                            abort_and_invalidate_current();
                         end else begin
                             if (cur_batch_id == 2'd3) begin
                                 runtime_valid[cur_target_idx] <= 1'b1;
                                 cal_done_pulse                <= 1'b1;
-                                cal_loading                   <= 1'b0;
-                                state                         <= ST_IDLE;
-                                sample_count                  <= 8'd0;
-                                wr_addr                       <= 10'd0;
+                                reset_transaction_state();
                             end else begin
                                 cal_loading  <= 1'b0;
                                 state        <= ST_WAITHDR;
@@ -446,30 +376,20 @@ module calibration_loader (
                         end
                     end
                 end else if (batch_valid) begin
-                    // batch_valid without sample_valid is illegal
-                    cal_error         <= 1'b1;
-                    cal_loading       <= 1'b0;
-                    state             <= ST_IDLE;
-                    cur_target_idx    <= 3'd0;
-                    cur_target_row_id <= 10'd0;
-                    cur_batch_id      <= 2'd0;
-                    sample_count      <= 8'd0;
-                    wr_addr           <= 10'd0;
+                    abort_and_invalidate_current();
                 end
             end else begin
-                // stray sample traffic outside active load
                 if (sample_valid || batch_valid) begin
-                    cal_error         <= 1'b1;
-                    cal_loading       <= 1'b0;
-                    state             <= ST_IDLE;
-                    cur_target_idx    <= 3'd0;
-                    cur_target_row_id <= 10'd0;
-                    cur_batch_id      <= 2'd0;
-                    sample_count      <= 8'd0;
-                    wr_addr           <= 10'd0;
+                    if (state == ST_WAITHDR)
+                        abort_and_invalidate_current();
+                    else begin
+                        cal_error <= 1'b1;
+                        reset_transaction_state();
+                    end
                 end
             end
         end
     end
 
 endmodule
+
