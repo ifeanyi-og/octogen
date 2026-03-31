@@ -1,25 +1,4 @@
 `timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
-// 
-// Create Date: 03/10/2026 10:32:27 AM
-// Design Name: 
-// Module Name: tb_octotop
-// Project Name: 
-// Target Devices: 
-// Tool Versions: 
-// Description: 
-// 
-// Dependencies: 
-// 
-// Revision:
-// Revision 0.01 - File Created
-// Additional Comments:
-// 
-//////////////////////////////////////////////////////////////////////////////////
-
-
 // =============================================================================
 // tb_octogen
 //
@@ -27,10 +6,17 @@
 // - sim clock wizard stub
 // - sim eth_io_top transport shim
 //
-// This bench is updated for:
+// Current expected system behavior:
 // - RX: 4 packets/row, 256 real samples/packet, header 0xFF01
+// - DSP stub: accepts 1024 samples, outputs first 512 unchanged
 // - TX: 2 packets/row, 256 real samples/packet, header 0xFF03
-// - TX row ID autonomous counter starting at 0 after reset
+// - TX row ID auto-counter starts at 0 after reset and increments per row
+//
+// Stronger coverage added:
+// - multiple consecutive rows
+// - distinctive data per row and per batch
+// - minimal inter-batch gaps
+// - modest variable inter-batch gaps
 // =============================================================================
 module tb_octogen;
 
@@ -43,14 +29,13 @@ module tb_octogen;
     localparam int TX_PACKETS_PER_ROW  = 2;
 
     localparam int BYTES_PER_PACKET    = 1028;
-    localparam int TOTAL_TX_BYTES      = TX_PACKETS_PER_ROW * BYTES_PER_PACKET;
 
     localparam logic [15:0] RX_HDR_TAG = 16'hFF01;
     localparam logic [15:0] TX_HDR_TAG = 16'hFF03;
 
-    // ========================================================================
+    // -------------------------------------------------------------------------
     // DUT pins
-    // ========================================================================
+    // -------------------------------------------------------------------------
     logic        reset_btn;
     logic [3:0]  rgmii_rd;
     logic        rgmii_rx_ctl;
@@ -80,9 +65,9 @@ module tb_octogen;
         .phy_rst_n    (phy_rst_n)
     );
 
-    // ========================================================================
+    // -------------------------------------------------------------------------
     // Scoreboard
-    // ========================================================================
+    // -------------------------------------------------------------------------
     int pass = 0;
     int fail = 0;
 
@@ -102,14 +87,18 @@ module tb_octogen;
         expect_local(cond, msg);
         if (!cond) begin
             $display("Stopping due to failure: %s", msg);
+            $display("==================================================");
+            $display("TOTAL PASS = %0d", pass);
+            $display("TOTAL FAIL = %0d", fail);
+            $display("==================================================");
             $finish;
         end
     end
     endtask
 
-    // ========================================================================
+    // -------------------------------------------------------------------------
     // Access helpers
-    // ========================================================================
+    // -------------------------------------------------------------------------
     task automatic wait_clk100(input integer n);
         integer i;
     begin
@@ -138,9 +127,47 @@ module tb_octogen;
         expected_tx_header_word = {TX_HDR_TAG, batch_id, 4'b0000, tx_row_id};
     endfunction
 
-    // ========================================================================
+    // Distinctive pattern:
+    // row_num identifies the row strongly
+    // batch_id identifies which quarter of the input row we are in
+    // sample_idx identifies the sample within that batch
+    //
+    // sample = row_num*1_000_000 + batch_id*100_000 + sample_idx
+    function automatic logic [31:0] patterned_input_sample_value(
+        input int row_num,
+        input int batch_id,
+        input int sample_idx
+    );
+        patterned_input_sample_value =
+            (row_num  * 32'd1000000) +
+            (batch_id * 32'd100000)  +
+            sample_idx[31:0];
+    endfunction
+
+    // First-half passthrough:
+    // TX returns input samples 0..511.
+    // Therefore tx_global_idx 0..255 maps to batch 0, 0..255
+    // and tx_global_idx 256..511 maps to batch 1, 0..255
+    function automatic logic [31:0] expected_tx_sample_value_patterned(
+        input int row_num,
+        input int tx_global_idx
+    );
+        int batch_id;
+        int sample_idx;
+    begin
+        batch_id   = tx_global_idx / 256;  // 0 or 1
+        sample_idx = tx_global_idx % 256;
+
+        expected_tx_sample_value_patterned =
+            (row_num  * 32'd1000000) +
+            (batch_id * 32'd100000)  +
+            sample_idx[31:0];
+    end
+    endfunction
+
+    // -------------------------------------------------------------------------
     // TX capture
-    // ========================================================================
+    // -------------------------------------------------------------------------
     typedef struct packed {
         logic [31:0] dest_ip;
         logic [15:0] src_port;
@@ -211,9 +238,9 @@ module tb_octogen;
         end
     end
 
-    // ========================================================================
+    // -------------------------------------------------------------------------
     // RX injection via eth_io sim shim
-    // ========================================================================
+    // -------------------------------------------------------------------------
     task automatic send_udp_header(
         input logic [31:0] src_ip,
         input logic [15:0] src_port,
@@ -228,7 +255,8 @@ module tb_octogen;
         dut.eth_io.tb_udp_rx_src_port  <= src_port;
         dut.eth_io.tb_udp_rx_dest_port <= dest_port;
 
-        do @(posedge dut.clk_100mhz); while (!(dut.eth_io.tb_udp_rx_hdr_valid && dut.eth_io.udp_rx_hdr_ready));
+        do @(posedge dut.clk_100mhz);
+        while (!(dut.eth_io.tb_udp_rx_hdr_valid && dut.eth_io.udp_rx_hdr_ready));
 
         dut.eth_io.tb_udp_rx_hdr_valid <= 1'b0;
     end
@@ -243,7 +271,8 @@ module tb_octogen;
         dut.eth_io.tb_udp_rx_tvalid <= 1'b1;
         dut.eth_io.tb_udp_rx_tlast  <= last;
 
-        do @(posedge dut.clk_100mhz); while (!(dut.eth_io.tb_udp_rx_tvalid && dut.eth_io.udp_rx_tready));
+        do @(posedge dut.clk_100mhz);
+        while (!(dut.eth_io.tb_udp_rx_tvalid && dut.eth_io.udp_rx_tready));
 
         dut.eth_io.tb_udp_rx_tvalid <= 1'b0;
         dut.eth_io.tb_udp_rx_tlast  <= 1'b0;
@@ -263,15 +292,15 @@ module tb_octogen;
     end
     endtask
 
-    task automatic send_app_packet(
+    task automatic send_app_packet_patterned(
         input logic [9:0]  row_id,
+        input int          row_num,
         input logic [1:0]  batch_id,
         input logic [31:0] src_ip,
         input logic [15:0] src_port,
         input logic [15:0] dest_port
     );
         integer i;
-        integer global_idx;
         logic [31:0] hdr;
         logic [31:0] data_val;
     begin
@@ -285,14 +314,39 @@ module tb_octogen;
         send_udp_byte(hdr[31:24], 1'b0);
 
         for (i = 0; i < RX_BATCH_SAMPLES; i = i + 1) begin
-            global_idx = batch_id * RX_BATCH_SAMPLES + i;
-            data_val   = global_idx[31:0];
+            data_val = patterned_input_sample_value(row_num, batch_id, i);
 
             send_udp_byte(data_val[7:0],   1'b0);
             send_udp_byte(data_val[15:8],  1'b0);
             send_udp_byte(data_val[23:16], 1'b0);
             send_udp_byte(data_val[31:24], (i == RX_BATCH_SAMPLES-1));
         end
+    end
+    endtask
+
+    task automatic send_full_row_patterned(
+        input logic [9:0]  rx_row_id,
+        input int          row_num,
+        input int          gap0,
+        input int          gap1,
+        input int          gap2,
+        input int          gap3,
+        input logic [31:0] src_ip,
+        input logic [15:0] src_port,
+        input logic [15:0] dest_port
+    );
+    begin
+        send_app_packet_patterned(rx_row_id, row_num, 2'd0, src_ip, src_port, dest_port);
+        idle_udp(gap0);
+
+        send_app_packet_patterned(rx_row_id, row_num, 2'd1, src_ip, src_port, dest_port);
+        idle_udp(gap1);
+
+        send_app_packet_patterned(rx_row_id, row_num, 2'd2, src_ip, src_port, dest_port);
+        idle_udp(gap2);
+
+        send_app_packet_patterned(rx_row_id, row_num, 2'd3, src_ip, src_port, dest_port);
+        idle_udp(gap3);
     end
     endtask
 
@@ -312,12 +366,13 @@ module tb_octogen;
     end
     endtask
 
-    task automatic check_single_packet_payload(
-        input int pkt_idx,
-        input logic [9:0] exp_tx_row_id
+    task automatic check_single_packet_payload_patterned(
+        input int         pkt_idx,
+        input logic [9:0] exp_tx_row_id,
+        input int         row_num
     );
         int s;
-        int base;
+        int base_byte;
         int global_idx;
         logic [31:0] hdr_word;
         logic [31:0] exp_hdr_word;
@@ -336,24 +391,26 @@ module tb_octogen;
                                pkt_idx, exp_tx_row_id, pkt_idx[1:0]));
 
         for (s = 0; s < TX_BATCH_SAMPLES; s = s + 1) begin
-            base       = 4 + (s * 4);
+            base_byte  = 4 + (s * 4);
             global_idx = pkt_idx * TX_BATCH_SAMPLES + s;
-            got_data   = bytes_to_u32_le(tx_pkts[pkt_idx][base+0],
-                                         tx_pkts[pkt_idx][base+1],
-                                         tx_pkts[pkt_idx][base+2],
-                                         tx_pkts[pkt_idx][base+3]);
 
-            // decimator keeps even input samples: 0,2,4,...,1022
-            exp_data = (global_idx * 2);
+            got_data = bytes_to_u32_le(tx_pkts[pkt_idx][base_byte+0],
+                                       tx_pkts[pkt_idx][base_byte+1],
+                                       tx_pkts[pkt_idx][base_byte+2],
+                                       tx_pkts[pkt_idx][base_byte+3]);
+
+            exp_data = expected_tx_sample_value_patterned(row_num, global_idx);
 
             expect_local(got_data == exp_data,
-                         $sformatf("packet %0d sample %0d data correct", pkt_idx, s));
+                         $sformatf("packet %0d sample %0d correct exp=%0d got=%0d",
+                                   pkt_idx, s, exp_data, got_data));
         end
     end
     endtask
 
-    task automatic check_row_tx(
+    task automatic check_row_tx_patterned(
         input logic [9:0]  exp_tx_row_id,
+        input int          row_num,
         input logic [31:0] exp_dest_ip,
         input logic [15:0] exp_dest_port
     );
@@ -363,19 +420,19 @@ module tb_octogen;
         expect_local(tx_pkts.size()  == TX_PACKETS_PER_ROW, "captured 2 TX packets");
 
         for (i = 0; i < tx_hdr_q.size(); i = i + 1) begin
-            expect_local(tx_hdr_q[i].dest_ip   == exp_dest_ip,   $sformatf("packet %0d dest IP correct", i));
-            expect_local(tx_hdr_q[i].src_port  == APP_UDP_PORT,  $sformatf("packet %0d src port correct", i));
-            expect_local(tx_hdr_q[i].dest_port == exp_dest_port, $sformatf("packet %0d dest port correct", i));
+            expect_local(tx_hdr_q[i].dest_ip   == exp_dest_ip,      $sformatf("packet %0d dest IP correct", i));
+            expect_local(tx_hdr_q[i].src_port  == APP_UDP_PORT,     $sformatf("packet %0d src port correct", i));
+            expect_local(tx_hdr_q[i].dest_port == exp_dest_port,    $sformatf("packet %0d dest port correct", i));
             expect_local(tx_hdr_q[i].length    == BYTES_PER_PACKET, $sformatf("packet %0d length correct", i));
 
-            check_single_packet_payload(i, exp_tx_row_id);
+            check_single_packet_payload_patterned(i, exp_tx_row_id, row_num);
         end
     end
     endtask
 
-    // ========================================================================
+    // -------------------------------------------------------------------------
     // Reset helper
-    // ========================================================================
+    // -------------------------------------------------------------------------
     task automatic reset_top;
     begin
         reset_btn    <= 1'b0;
@@ -401,9 +458,44 @@ module tb_octogen;
     end
     endtask
 
-    // ========================================================================
+    // -------------------------------------------------------------------------
+    // Row stress helper
+    // -------------------------------------------------------------------------
+    task automatic run_and_check_row(
+        input logic [9:0] rx_row_id,
+        input logic [9:0] exp_tx_row_id,
+        input int         row_num,
+        input int         gap0,
+        input int         gap1,
+        input int         gap2,
+        input int         gap3
+    );
+        bit ok;
+    begin
+        clear_tx_capture();
+
+        send_full_row_patterned(
+            rx_row_id,
+            row_num,
+            gap0, gap1, gap2, gap3,
+            32'hC0A80A63,
+            16'd6000,
+            16'd5001
+        );
+
+        wait_for_tx_packets(2, 80000, ok);
+        fatal_if_fail(ok,
+            $sformatf("received all 2 TX packets for row_num=%0d exp_tx_row_id=%0d",
+                      row_num, exp_tx_row_id));
+
+        check_row_tx_patterned(exp_tx_row_id, row_num, 32'hC0A80A63, 16'd6000);
+    end
+    endtask
+
+    // -------------------------------------------------------------------------
     // Main
-    // ========================================================================
+    // -------------------------------------------------------------------------
+    integer r;
     bit ok;
 
     initial begin
@@ -414,30 +506,75 @@ module tb_octogen;
         expect_local(my_led[0] == 1'b1, "LED0 reflects pll_locked");
         expect_local(my_led[1] == 1'b1, "LED1 reflects phy_rst_n");
 
-        // TEST1: wrong port ignored
+        // ---------------------------------------------------------------------
+        // TEST 1: wrong port ignored
+        // ---------------------------------------------------------------------
+        $display("==================================================");
+        $display("TEST 1: wrong port ignored");
+        $display("==================================================");
+
         clear_tx_capture();
-        send_app_packet(10'd3, 2'd0, 32'hC0A80A63, 16'd6000, 16'd5002);
+        send_app_packet_patterned(10'd3, 999, 2'd0, 32'hC0A80A63, 16'd6000, 16'd5002);
         wait_clk100(300);
         expect_local(tx_hdr_q.size() == 0, "wrong-port packet produced no TX headers");
         expect_local(tx_pkts.size()  == 0, "wrong-port packet produced no TX packets");
 
-        // TEST2: one full row end-to-end
-        clear_tx_capture();
+        // ---------------------------------------------------------------------
+        // TEST 2: one full row end-to-end
+        // ---------------------------------------------------------------------
+        $display("==================================================");
+        $display("TEST 2: one full row end-to-end");
+        $display("==================================================");
+
+        reset_top();
+        run_and_check_row(10'd11, 10'd0, 0, 1, 1, 1, 1);
+
+        // ---------------------------------------------------------------------
+        // TEST 3: multiple consecutive rows with minimal gaps
+        // ---------------------------------------------------------------------
+        $display("==================================================");
+        $display("TEST 3: 6 consecutive rows with minimal gaps");
+        $display("==================================================");
+
         reset_top();
 
-        send_app_packet(10'd3, 2'd0, 32'hC0A80A63, 16'd6000, 16'd5001);
-        idle_udp(3);
-        send_app_packet(10'd3, 2'd1, 32'hC0A80A63, 16'd6000, 16'd5001);
-        idle_udp(3);
-        send_app_packet(10'd3, 2'd2, 32'hC0A80A63, 16'd6000, 16'd5001);
-        idle_udp(3);
-        send_app_packet(10'd3, 2'd3, 32'hC0A80A63, 16'd6000, 16'd5001);
+        for (r = 0; r < 6; r = r + 1) begin
+            run_and_check_row(
+                10'(r + 20),   // arbitrary RX row IDs
+                10'(r),        // TX row IDs should auto-count from reset
+                r,             // row_num determines data pattern
+                0, 1, 0, 0     // minimal inter-batch gaps
+            );
+        end
 
-        wait_for_tx_packets(2, 50000, ok);
-        fatal_if_fail(ok, "received all 2 TX packets");
-        check_row_tx(10'd0, 32'hC0A80A63, 16'd6000);
+        // ---------------------------------------------------------------------
+        // TEST 4: multiple rows with modest variable gaps
+        // ---------------------------------------------------------------------
+        $display("==================================================");
+        $display("TEST 4: 6 rows with modest variable gaps");
+        $display("==================================================");
 
-        // LED smoke
+        reset_top();
+
+        for (r = 0; r < 6; r = r + 1) begin
+            run_and_check_row(
+                10'(r + 100),
+                10'(r),
+                r + 100,              // distinct data set from test 3
+                (r % 4),              // 0..3
+                ((r + 1) % 4) + 1,    // 1..4
+                ((r + 2) % 5),        // 0..4
+                ((r + 3) % 7)         // 0..6
+            );
+        end
+
+        // ---------------------------------------------------------------------
+        // TEST 5: LED smoke
+        // ---------------------------------------------------------------------
+        $display("==================================================");
+        $display("TEST 5: LED smoke");
+        $display("==================================================");
+
         my_btns[0] = 1'b1;
         wait_clk100(2);
         expect_local(my_led[6] == 1'b1, "LED6 reflects button 0 high");
@@ -445,6 +582,9 @@ module tb_octogen;
         wait_clk100(2);
         expect_local(my_led[6] == 1'b0, "LED6 reflects button 0 low");
 
+        // ---------------------------------------------------------------------
+        // Final summary
+        // ---------------------------------------------------------------------
         $display("==================================================");
         $display("TOTAL PASS = %0d", pass);
         $display("TOTAL FAIL = %0d", fail);
@@ -498,9 +638,7 @@ endmodule
 // =============================================================================
 // Simulation stub: eth_io_top
 //
-// This is a transport shim for top-level simulation only.
-// It does not model Ethernet. It simply exposes UDP-facing ports and allows
-// the testbench to drive/capture them hierarchically.
+// Transport shim for top-level simulation only.
 // =============================================================================
 module eth_io_top (
     input  wire        reset_btn,
@@ -574,4 +712,3 @@ module eth_io_top (
     end
 
 endmodule
-

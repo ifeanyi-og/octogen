@@ -9,7 +9,7 @@
 // New packet format:
 //   Bytes [3:0]      - Application header (32-bit)
 //                      [31:24] wakeup   = 0xFF
-//                      [23:16] wakeup   = 0xFF
+//                      [23:16] wakeup   = 0x01
 //                      [15:14] batch_id = 0..3
 //                      [13:10] reserved = 0
 //                      [9:0]   row_id

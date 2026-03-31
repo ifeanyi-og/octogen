@@ -2,18 +2,30 @@
 // =============================================================================
 // dsp_core_top
 //
-// Placeholder real-only DSP chain.
+// Deterministic row-buffered DSP stub.
 //
-// Behavior:
-// - Accepts 1024 real samples per row
-// - Emits 512 real samples per row
-// - Current placeholder "DSP" = decimate-by-2 (keep even-indexed samples)
-// - A latency pipe is kept after decimation so more DSP blocks can be inserted
-//   in front of / behind the decimator cleanly later
+// Current placeholder behavior:
+// - Accept exactly 1024 real samples for one row
+// - Emit exactly the first 512 samples unchanged
+//
+// Input contract:
+// - in_row_start must be asserted together with the first valid sample of a row
+// - inputs for a row may be contiguous or may contain gaps in in_valid
+// - do not start a new row while this block is still busy with the previous row
+//
+// Output behavior:
+// - out_valid asserted for each emitted sample
+// - out_row_start asserted together with the first output sample of a row
+// - row_done asserted together with the final output sample of a row
+//
+// Purpose:
+// - maximally predictable integration stub
+// - easy to verify row assembly, packetization, and transmission edges
 // =============================================================================
 
 module dsp_core_top #(
-    parameter integer PIPELINE_LATENCY = 8
+    parameter integer IN_SAMPLES_PER_ROW  = 1024,
+    parameter integer OUT_SAMPLES_PER_ROW = 512
 ) (
     input  wire        clk,
     input  wire        rst,
@@ -24,86 +36,111 @@ module dsp_core_top #(
     input  wire [31:0] in_data,
 
     // ---- Output stream ----
-    output wire        out_valid,
-    output wire [31:0] out_data,
+    output reg         out_valid,
+    output reg         out_row_start,
+    output reg  [31:0] out_data,
 
     // ---- Optional status ----
     output wire        busy,
-    output wire        row_done
+    output reg         row_done
 );
 
-    localparam integer IN_SAMPLES_PER_ROW  = 1024;
-    localparam integer OUT_SAMPLES_PER_ROW = 512;
+    localparam [1:0]
+        ST_IDLE = 2'd0,
+        ST_FILL = 2'd1,
+        ST_OUT  = 2'd2;
 
-    // -------------------------------------------------------------------------
-    // Front-end sample index / row tracking
-    // -------------------------------------------------------------------------
-    reg [9:0] in_sample_idx;
-    reg [8:0] out_sample_idx;
-    reg       busy_r;
+    reg [1:0] state;
 
-    wire take_input = in_valid;
-    wire keep_sample = take_input && (in_sample_idx[0] == 1'b0); // even samples only
+    reg [31:0] row_mem [0:IN_SAMPLES_PER_ROW-1];
 
+    reg [9:0] in_count;   // 0..1023
+    reg [8:0] out_count;  // 0..511
+
+    reg busy_r;
+    assign busy = busy_r;
+
+    integer i;
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            in_sample_idx  <= 10'd0;
-            out_sample_idx <= 9'd0;
-            busy_r         <= 1'b0;
-        end else begin
-            if (take_input) begin
-                if (in_row_start) begin
-                    in_sample_idx  <= 10'd1;
-                    out_sample_idx <= 9'd0;
-                    busy_r         <= 1'b1;
-                end else begin
-                    if (in_sample_idx == IN_SAMPLES_PER_ROW-1)
-                        in_sample_idx <= 10'd0;
-                    else
-                        in_sample_idx <= in_sample_idx + 10'd1;
-                end
-            end
+            state         <= ST_IDLE;
+            in_count      <= 10'd0;
+            out_count     <= 9'd0;
+            out_valid     <= 1'b0;
+            out_row_start <= 1'b0;
+            out_data      <= 32'd0;
+            row_done      <= 1'b0;
+            busy_r        <= 1'b0;
 
-            if (out_valid) begin
-                if (out_sample_idx == OUT_SAMPLES_PER_ROW-1) begin
-                    out_sample_idx <= 9'd0;
-                    busy_r         <= 1'b0;
-                end else begin
-                    out_sample_idx <= out_sample_idx + 9'd1;
+            for (i = 0; i < IN_SAMPLES_PER_ROW; i = i + 1)
+                row_mem[i] <= 32'd0;
+
+        end else begin
+            // default pulse outputs
+            out_valid     <= 1'b0;
+            out_row_start <= 1'b0;
+            row_done      <= 1'b0;
+
+            case (state)
+
+                // -------------------------------------------------------------
+                // Wait for first sample of a row
+                // -------------------------------------------------------------
+                ST_IDLE: begin
+                    in_count  <= 10'd0;
+                    out_count <= 9'd0;
+                    busy_r    <= 1'b0;
+
+                    if (in_valid && in_row_start) begin
+                        row_mem[0] <= in_data;
+                        in_count   <= 10'd1;
+                        busy_r     <= 1'b1;
+                        state      <= ST_FILL;
+                    end
                 end
-            end
+
+                // -------------------------------------------------------------
+                // Collect full 1024-sample row
+                // -------------------------------------------------------------
+                ST_FILL: begin
+                    busy_r <= 1'b1;
+
+                    if (in_valid) begin
+                        row_mem[in_count] <= in_data;
+
+                        if (in_count == IN_SAMPLES_PER_ROW-1) begin
+                            out_count <= 9'd0;
+                            state     <= ST_OUT;
+                        end else begin
+                            in_count <= in_count + 10'd1;
+                        end
+                    end
+                end
+
+                // -------------------------------------------------------------
+                // Emit first 512 samples unchanged
+                // -------------------------------------------------------------
+                ST_OUT: begin
+                    busy_r        <= 1'b1;
+                    out_valid     <= 1'b1;
+                    out_row_start <= (out_count == 9'd0);
+                    out_data      <= row_mem[out_count];
+                    row_done      <= (out_count == OUT_SAMPLES_PER_ROW-1);
+
+                    if (out_count == OUT_SAMPLES_PER_ROW-1) begin
+                        state    <= ST_IDLE;
+                        busy_r   <= 1'b0;
+                        in_count <= 10'd0;
+                    end else begin
+                        out_count <= out_count + 9'd1;
+                    end
+                end
+
+                default: begin
+                    state <= ST_IDLE;
+                end
+            endcase
         end
     end
-
-    // -------------------------------------------------------------------------
-    // Decimator output into latency pipeline
-    // -------------------------------------------------------------------------
-    reg [31:0] pipe_data  [0:PIPELINE_LATENCY-1];
-    reg        pipe_valid [0:PIPELINE_LATENCY-1];
-
-    integer k;
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            for (k = 0; k < PIPELINE_LATENCY; k = k + 1) begin
-                pipe_data[k]  <= 32'd0;
-                pipe_valid[k] <= 1'b0;
-            end
-        end else begin
-            pipe_data[0]  <= in_data;
-            pipe_valid[0] <= keep_sample;
-
-            for (k = 1; k < PIPELINE_LATENCY; k = k + 1) begin
-                pipe_data[k]  <= pipe_data[k-1];
-                pipe_valid[k] <= pipe_valid[k-1];
-            end
-        end
-    end
-
-    assign out_valid = pipe_valid[PIPELINE_LATENCY-1];
-    assign out_data  = pipe_data[PIPELINE_LATENCY-1];
-
-    assign busy     = busy_r;
-    assign row_done = out_valid && (out_sample_idx == OUT_SAMPLES_PER_ROW-1);
 
 endmodule
-
