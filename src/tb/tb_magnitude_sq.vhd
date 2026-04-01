@@ -1,164 +1,247 @@
-
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
-entity tb_magnitude_sq is
-end tb_magnitude_sq;
+entity tb_mag_sq is
+end tb_mag_sq;
 
-architecture Behavioral of tb_magnitude_sq is
+architecture sim of tb_mag_sq is
+
+    constant CLK_PER        : time    := 10 ns;
+    constant ASCAN_LEN      : integer := 1024;
+    constant NUM_ASCANS     : integer := 3;
+    constant TOTAL_SAMPLES  : integer := ASCAN_LEN * NUM_ASCANS;
+
     --------------------------------------------------------------------
     -- DUT signals
     --------------------------------------------------------------------
-    signal clk        : std_logic := '0';
-    signal rst        : std_logic := '1';
+    signal clk                : std_logic := '0';
+    signal rst                : std_logic := '1';
 
-    signal re_in      : signed(31 downto 0) := (others => '0');
-    signal im_in      : signed(31 downto 0) := (others => '0');
-    signal in_valid   : std_logic := '0';
+    signal re_in              : signed(31 downto 0) := (others => '0');
+    signal im_in              : signed(31 downto 0) := (others => '0');
+    signal in_valid           : std_logic := '0';
+    signal start_of_ascan     : std_logic := '0';
 
-    signal mag_sq_out : unsigned(64 downto 0);
-    signal out_valid  : std_logic;
+    signal mag_sq_out         : unsigned(64 downto 0);
+    signal out_valid          : std_logic;
+    signal start_of_ascan_out : std_logic;
 
-    constant CLK_PER  : time := 10 ns;
 begin
-    --------------------------------------------------------------------
-    -- Clock generation
-    --------------------------------------------------------------------
-    clk <= not clk after CLK_PER/2;
 
     --------------------------------------------------------------------
-    -- DUT instantiation
+    -- Clock
     --------------------------------------------------------------------
-    uut: entity work.mag_calc
+    clk <= not clk after CLK_PER / 2;
+
+    --------------------------------------------------------------------
+    -- DUT
+    --------------------------------------------------------------------
+    uut : entity work.mag_calc
         port map (
-            clk        => clk,
-            rst        => rst,
-            re_in      => re_in,
-            im_in      => im_in,
-            in_valid   => in_valid,
-            mag_sq_out => mag_sq_out,
-            out_valid  => out_valid
+            clk                => clk,
+            rst                => rst,
+            re_in              => re_in,
+            im_in              => im_in,
+            in_valid           => in_valid,
+            start_of_ascan     => start_of_ascan,
+            mag_sq_out         => mag_sq_out,
+            out_valid          => out_valid,
+            start_of_ascan_out => start_of_ascan_out
         );
 
     --------------------------------------------------------------------
-    -- Stimulus + checking
+    -- Stimulus
     --------------------------------------------------------------------
-    stim_proc: process
-
-        ----------------------------------------------------------------
-        -- Helper procedure:
-        -- drives one input for one cycle
-        ----------------------------------------------------------------
-        procedure send_sample (
-            constant re_val : integer;
-            constant im_val : integer
-        ) is
-        begin
-            re_in    <= to_signed(re_val, 32);
-            im_in    <= to_signed(im_val, 32);
-            in_valid <= '1';
-            wait until rising_edge(clk);
-
-            re_in    <= (others => '0');
-            im_in    <= (others => '0');
-            in_valid <= '0';
-        end procedure;
-
-        ----------------------------------------------------------------
-        -- Helper procedure:
-        -- waits for valid output and checks exact value
-        ----------------------------------------------------------------
-        procedure expect_output (
-            constant expected_val : integer;
-            constant test_name    : string
-        ) is
-        begin
-            -- Wait until DUT says output is valid
-            loop
-                wait until rising_edge(clk);
-                exit when out_valid = '1';
-            end loop;
-
-            assert mag_sq_out = to_unsigned(expected_val, 65)
-                report "FAIL: " & test_name &
-                       " | expected " & integer'image(expected_val) &
-                       " | got different result"
-                severity error;
-
-            report "PASS: " & test_name &
-                   " | output = " & integer'image(expected_val)
-                severity note;
-        end procedure;
-
+    stim_proc : process
+        variable sample_idx_global : integer;
+        variable sample_idx_ascan  : integer;
+        variable ascan_idx         : integer;
+        variable re_val            : integer;
+        variable im_val            : integer;
     begin
         ----------------------------------------------------------------
         -- Reset
         ----------------------------------------------------------------
-        rst <= '1';
-        re_in <= (others => '0');
-        im_in <= (others => '0');
-        in_valid <= '0';
+        rst            <= '1';
+        re_in          <= (others => '0');
+        im_in          <= (others => '0');
+        in_valid       <= '0';
+        start_of_ascan <= '0';
 
-        wait for 30 ns;
+        wait for 40 ns;
         wait until rising_edge(clk);
         rst <= '0';
         wait until rising_edge(clk);
 
         ----------------------------------------------------------------
-        -- Test 1: 3^2 + 4^2 = 25
+        -- Stream 3 A-scans back-to-back, 1024 samples each
         ----------------------------------------------------------------
-        send_sample(3, 4);
-        expect_output(25, "Test 1: (3,4)");
+        for sample_idx_global in 0 to TOTAL_SAMPLES - 1 loop
+            ascan_idx        := sample_idx_global / ASCAN_LEN;
+            sample_idx_ascan := sample_idx_global mod ASCAN_LEN;
+
+            -- Deterministic test pattern:
+            -- varies with both scan number and sample number
+            re_val := (ascan_idx + 1) * 1000 + sample_idx_ascan - 512;
+            im_val := ((ascan_idx + 1) * 200) - sample_idx_ascan;
+
+            re_in        <= to_signed(re_val, 32);
+            im_in        <= to_signed(im_val, 32);
+            in_valid     <= '1';
+
+            if sample_idx_ascan = 0 then
+                start_of_ascan <= '1';
+            else
+                start_of_ascan <= '0';
+            end if;
+
+            wait until rising_edge(clk);
+        end loop;
 
         ----------------------------------------------------------------
-        -- Test 2: 5^2 + 12^2 = 169
+        -- Stop driving valid after final input sample
         ----------------------------------------------------------------
-        send_sample(5, 12);
-        expect_output(169, "Test 2: (5,12)");
+        re_in          <= (others => '0');
+        im_in          <= (others => '0');
+        in_valid       <= '0';
+        start_of_ascan <= '0';
 
-        ----------------------------------------------------------------
-        -- Test 3: (-7)^2 + 24^2 = 49 + 576 = 625
-        ----------------------------------------------------------------
-        send_sample(-7, 24);
-        expect_output(625, "Test 3: (-7,24)");
-
-        ----------------------------------------------------------------
-        -- Test 4: 0^2 + 0^2 = 0
-        ----------------------------------------------------------------
-        send_sample(0, 0);
-        expect_output(0, "Test 4: (0,0)");
-
-        ----------------------------------------------------------------
-        -- Test 5: (-1)^2 + (-1)^2 = 2
-        ----------------------------------------------------------------
-        send_sample(-1, -1);
-        expect_output(2, "Test 5: (-1,-1)");
-
-        ----------------------------------------------------------------
-        -- Test 6: back-to-back samples
-        ----------------------------------------------------------------
-        re_in    <= to_signed(8, 32);
-        im_in    <= to_signed(6, 32);
-        in_valid <= '1';
+        -- Let the pipeline drain
+        wait until rising_edge(clk);
+        wait until rising_edge(clk);
         wait until rising_edge(clk);
 
-        re_in    <= to_signed(1, 32);
-        im_in    <= to_signed(2, 32);
-        in_valid <= '1';
-        wait until rising_edge(clk);
-
-        re_in    <= (others => '0');
-        im_in    <= (others => '0');
-        in_valid <= '0';
-
-        expect_output(100, "Test 6a: (8,6)");
-        expect_output(5,   "Test 6b: (1,2)");
-
-        ----------------------------------------------------------------
-        -- Done
-        ----------------------------------------------------------------
-        report "All tests completed." severity note;
+        report "tb_mag_calc completed" severity note;
         wait;
     end process;
-end Behavioral;
+
+    --------------------------------------------------------------------
+    -- Self-checking monitor
+    --------------------------------------------------------------------
+    check_proc : process
+        variable in_count            : integer := 0;
+        variable out_count           : integer := 0;
+
+        variable exp_ascan_idx       : integer;
+        variable exp_sample_idx      : integer;
+        variable exp_re_val          : integer;
+        variable exp_im_val          : integer;
+
+        variable exp_mag_sq_int      : integer;
+        variable exp_mag_sq_unsigned : unsigned(64 downto 0);
+
+        variable exp_soa             : std_logic;
+    begin
+        wait until rising_edge(clk);
+
+        if rst = '1' then
+            in_count  := 0;
+            out_count := 0;
+
+        else
+            ----------------------------------------------------------------
+            -- Count accepted input samples
+            ----------------------------------------------------------------
+            if in_valid = '1' then
+                in_count := in_count + 1;
+            end if;
+
+            ----------------------------------------------------------------
+            -- Check each output sample as it appears
+            ----------------------------------------------------------------
+            if out_valid = '1' then
+                if out_count >= TOTAL_SAMPLES then
+                    assert false
+                        report "FAIL: More output samples than expected"
+                        severity error;
+                end if;
+
+                exp_ascan_idx  := out_count / ASCAN_LEN;
+                exp_sample_idx := out_count mod ASCAN_LEN;
+
+                -- Recreate the exact same stimulus pattern
+                exp_re_val := (exp_ascan_idx + 1) * 1000 + exp_sample_idx - 512;
+                exp_im_val := ((exp_ascan_idx + 1) * 200) - exp_sample_idx;
+
+                exp_mag_sq_int := exp_re_val * exp_re_val +
+                                  exp_im_val * exp_im_val;
+
+                exp_mag_sq_unsigned := to_unsigned(exp_mag_sq_int, 65);
+
+                if exp_sample_idx = 0 then
+                    exp_soa := '1';
+                else
+                    exp_soa := '0';
+                end if;
+
+                assert mag_sq_out = exp_mag_sq_unsigned
+                    report "FAIL: mag_sq mismatch at output sample " &
+                           integer'image(out_count) &
+                           " (ascan " & integer'image(exp_ascan_idx) &
+                           ", sample " & integer'image(exp_sample_idx) & ")"
+                    severity error;
+
+                assert start_of_ascan_out = exp_soa
+                    report "FAIL: start_of_ascan_out mismatch at output sample " &
+                           integer'image(out_count) &
+                           " (ascan " & integer'image(exp_ascan_idx) &
+                           ", sample " & integer'image(exp_sample_idx) & ")" &
+                           " expected=" & std_logic'image(exp_soa) &
+                           " got=" & std_logic'image(start_of_ascan_out)
+                    severity error;
+
+                out_count := out_count + 1;
+            end if;
+
+            ----------------------------------------------------------------
+            -- Once pipeline fills, out_valid should keep pace with stream
+            -- while input is continuously valid.
+            --
+            -- We do not hard-fail cycle-by-cycle here during the initial
+            -- fill/drain, but at the end we do ensure the exact total count.
+            ----------------------------------------------------------------
+            if (in_valid = '0') and (out_count = TOTAL_SAMPLES) then
+                report "PASS: All " & integer'image(TOTAL_SAMPLES) &
+                       " output samples matched expected values and SOA alignment"
+                    severity note;
+            end if;
+        end if;
+    end process;
+
+    --------------------------------------------------------------------
+    -- Final output count check
+    --------------------------------------------------------------------
+    final_check_proc : process
+        variable observed_outputs : integer := 0;
+    begin
+        wait until rst = '0';
+
+        while true loop
+            wait until rising_edge(clk);
+
+            if out_valid = '1' then
+                observed_outputs := observed_outputs + 1;
+            end if;
+
+            if observed_outputs = TOTAL_SAMPLES then
+                -- Wait a couple extra clocks to ensure no extra outputs appear
+                wait until rising_edge(clk);
+                assert out_valid = '0'
+                    report "FAIL: Unexpected extra output after expected stream end"
+                    severity error;
+
+                wait until rising_edge(clk);
+                assert out_valid = '0'
+                    report "FAIL: Unexpected extra output after expected stream end"
+                    severity error;
+
+                report "PASS: Output count exactly matched expected total of " &
+                       integer'image(TOTAL_SAMPLES)
+                    severity note;
+                wait;
+            end if;
+        end loop;
+    end process;
+
+end sim;
