@@ -1,3 +1,4 @@
+
 `timescale 1ns/1ps
 
 module tb_calibration_loader;
@@ -99,17 +100,38 @@ module tb_calibration_loader;
     logic [17:0] klin_e_rd_data;
 
     // ------------------------------------------------------------
-    // Pulse latches
+    // Event latches / counters
     // ------------------------------------------------------------
     logic clear_event_latches;
     logic saw_cal_error;
     logic saw_done_pulse;
+
+    int bg_write_count_seen;
+    int klin_a_write_count_seen;
+    int klin_b_write_count_seen;
+    int klin_c_write_count_seen;
+    int klin_d_write_count_seen;
+    int klin_e_write_count_seen;
 
     // ------------------------------------------------------------
     // Scoreboard
     // ------------------------------------------------------------
     int pass = 0;
     int fail = 0;
+
+    localparam [9:0] RID_BG      = 10'd0;
+    localparam [9:0] RID_KLIN_A  = 10'd24;
+    localparam [9:0] RID_KLIN_B  = 10'd25;
+    localparam [9:0] RID_KLIN_C  = 10'd26;
+    localparam [9:0] RID_KLIN_D  = 10'd27;
+    localparam [9:0] RID_KLIN_E  = 10'd28;
+
+    localparam int IDX_BG        = 0;
+    localparam int IDX_KLIN_A    = 3;
+    localparam int IDX_KLIN_B    = 4;
+    localparam int IDX_KLIN_C    = 5;
+    localparam int IDX_KLIN_D    = 6;
+    localparam int IDX_KLIN_E    = 7;
 
     // ------------------------------------------------------------
     // DUT
@@ -181,7 +203,7 @@ module tb_calibration_loader;
     );
 
     // ------------------------------------------------------------
-    // Active memory instances
+    // Memory models / BRAMs
     // ------------------------------------------------------------
     bgsub_blk_mem_gen u_bg (
         .clka(clk),
@@ -256,25 +278,42 @@ module tb_calibration_loader;
     );
 
     // ------------------------------------------------------------
-    // Pulse-capture logic
+    // Event capture
     // ------------------------------------------------------------
     always_ff @(posedge clk or posedge rst) begin
         if (rst) begin
-            saw_cal_error <= 1'b0;
-            saw_done_pulse <= 1'b0;
+            saw_cal_error        <= 1'b0;
+            saw_done_pulse       <= 1'b0;
+            bg_write_count_seen  <= 0;
+            klin_a_write_count_seen <= 0;
+            klin_b_write_count_seen <= 0;
+            klin_c_write_count_seen <= 0;
+            klin_d_write_count_seen <= 0;
+            klin_e_write_count_seen <= 0;
         end else if (clear_event_latches) begin
-            saw_cal_error <= 1'b0;
-            saw_done_pulse <= 1'b0;
+            saw_cal_error        <= 1'b0;
+            saw_done_pulse       <= 1'b0;
+            bg_write_count_seen  <= 0;
+            klin_a_write_count_seen <= 0;
+            klin_b_write_count_seen <= 0;
+            klin_c_write_count_seen <= 0;
+            klin_d_write_count_seen <= 0;
+            klin_e_write_count_seen <= 0;
         end else begin
-            if (cal_error)
-                saw_cal_error <= 1'b1;
-            if (cal_done_pulse)
-                saw_done_pulse <= 1'b1;
+            if (cal_error)      saw_cal_error  <= 1'b1;
+            if (cal_done_pulse) saw_done_pulse <= 1'b1;
+
+            if (bg_wr_en)       bg_write_count_seen      <= bg_write_count_seen + 1;
+            if (klin_a_wr_en)   klin_a_write_count_seen  <= klin_a_write_count_seen + 1;
+            if (klin_b_wr_en)   klin_b_write_count_seen  <= klin_b_write_count_seen + 1;
+            if (klin_c_wr_en)   klin_c_write_count_seen  <= klin_c_write_count_seen + 1;
+            if (klin_d_wr_en)   klin_d_write_count_seen  <= klin_d_write_count_seen + 1;
+            if (klin_e_wr_en)   klin_e_write_count_seen  <= klin_e_write_count_seen + 1;
         end
     end
 
     // ------------------------------------------------------------
-    // Helpers
+    // Basic helpers
     // ------------------------------------------------------------
     task automatic expect_local(input logic cond, input string msg);
     begin
@@ -332,6 +371,28 @@ module tb_calibration_loader;
     end
     endtask
 
+    task automatic hard_reset_dut;
+    begin
+        @(negedge clk);
+        clear_drive();
+        rst = 1'b1;
+        repeat (4) @(negedge clk);
+        rst = 1'b0;
+        repeat (2) @(negedge clk);
+        clear_drive();
+        reset_event_capture();
+    end
+    endtask
+
+    task automatic require_idle(input string tag);
+    begin
+        expect_local(cal_loading == 1'b0, {tag, " cal_loading==0"});
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Stimulus helpers
+    // ------------------------------------------------------------
     task automatic send_cal_header(input [9:0] rid, input [1:0] bid);
     begin
         @(negedge clk);
@@ -390,58 +451,6 @@ module tb_calibration_loader;
     end
     endtask
 
-    task automatic send_batch_payload_missing_end(input [31:0] base);
-        int i;
-    begin
-        for (i = 0; i < 256; i++) begin
-            @(negedge clk);
-            hdr_valid    = 1'b0;
-            pkt_is_cal   = 1'b0;
-            pkt_msg_type = 8'h00;
-            batch_id     = 2'd0;
-            row_id       = 10'd0;
-            sample_valid = 1'b1;
-            sample_data  = base + i;
-            sample_last  = 1'b0;
-            batch_valid  = 1'b0;
-        end
-        @(negedge clk);
-        clear_drive();
-    end
-    endtask
-
-    task automatic send_batch_payload_overflow(input [31:0] base);
-        int i;
-    begin
-        for (i = 0; i < 256; i++) begin
-            @(negedge clk);
-            hdr_valid    = 1'b0;
-            pkt_is_cal   = 1'b0;
-            pkt_msg_type = 8'h00;
-            batch_id     = 2'd0;
-            row_id       = 10'd0;
-            sample_valid = 1'b1;
-            sample_data  = base + i;
-            sample_last  = (i == 255);
-            batch_valid  = (i == 255);
-        end
-
-        @(negedge clk);
-        hdr_valid    = 1'b0;
-        pkt_is_cal   = 1'b0;
-        pkt_msg_type = 8'h00;
-        batch_id     = 2'd0;
-        row_id       = 10'd0;
-        sample_valid = 1'b1;
-        sample_data  = base + 32'h100;
-        sample_last  = 1'b0;
-        batch_valid  = 1'b0;
-
-        @(negedge clk);
-        clear_drive();
-    end
-    endtask
-
     task automatic send_full_cal(input [9:0] rid, input [31:0] base);
         int b;
     begin
@@ -449,6 +458,18 @@ module tb_calibration_loader;
             send_cal_header(rid, b[1:0]);
             send_batch_payload_valid(base + (b * 32'h1000));
         end
+    end
+    endtask
+
+    task automatic send_invalid_cal_early_end(
+        input [9:0] rid,
+        input [31:0] base,
+        input int last_index
+    );
+    begin
+        send_cal_header(rid, 2'd0);
+        idle_cycles(1);
+        send_batch_payload_early_end(base, last_index);
     end
     endtask
 
@@ -460,12 +481,10 @@ module tb_calibration_loader;
         @(negedge clk);
         bg_rd_en   = 1'b1;
         bg_rd_addr = addr;
-
         @(posedge clk);
         @(posedge clk);
         @(negedge clk);
         data = bg_rd_data;
-
         bg_rd_en   = 1'b0;
         bg_rd_addr = '0;
     end
@@ -476,12 +495,10 @@ module tb_calibration_loader;
         @(negedge clk);
         klin_a_rd_en   = 1'b1;
         klin_a_rd_addr = addr;
-
         @(posedge clk);
         @(posedge clk);
         @(negedge clk);
         data = klin_a_rd_data;
-
         klin_a_rd_en   = 1'b0;
         klin_a_rd_addr = '0;
     end
@@ -492,12 +509,10 @@ module tb_calibration_loader;
         @(negedge clk);
         klin_b_rd_en   = 1'b1;
         klin_b_rd_addr = addr;
-
         @(posedge clk);
         @(posedge clk);
         @(negedge clk);
         data = klin_b_rd_data;
-
         klin_b_rd_en   = 1'b0;
         klin_b_rd_addr = '0;
     end
@@ -508,12 +523,10 @@ module tb_calibration_loader;
         @(negedge clk);
         klin_c_rd_en   = 1'b1;
         klin_c_rd_addr = addr;
-
         @(posedge clk);
         @(posedge clk);
         @(negedge clk);
         data = klin_c_rd_data;
-
         klin_c_rd_en   = 1'b0;
         klin_c_rd_addr = '0;
     end
@@ -524,12 +537,10 @@ module tb_calibration_loader;
         @(negedge clk);
         klin_d_rd_en   = 1'b1;
         klin_d_rd_addr = addr;
-
         @(posedge clk);
         @(posedge clk);
         @(negedge clk);
         data = klin_d_rd_data;
-
         klin_d_rd_en   = 1'b0;
         klin_d_rd_addr = '0;
     end
@@ -540,25 +551,26 @@ module tb_calibration_loader;
         @(negedge clk);
         klin_e_rd_en   = 1'b1;
         klin_e_rd_addr = addr;
-
         @(posedge clk);
         @(posedge clk);
         @(negedge clk);
         data = klin_e_rd_data;
-
         klin_e_rd_en   = 1'b0;
         klin_e_rd_addr = '0;
     end
     endtask
 
     // ------------------------------------------------------------
-    // Anchor checks
+    // Key point checkers
     // ------------------------------------------------------------
-    task automatic check_bg_anchors(input [31:0] base, input string tag);
+    task automatic check_bg_key_points(input [31:0] base, input string tag);
         logic [31:0] got, exp;
     begin
         read_bg_addr(10'd0, got);     exp = base + 32'd0;
         expect_local(got === exp, {tag, " BG[0]"});
+
+        read_bg_addr(10'd17, got);    exp = base + 32'd17;
+        expect_local(got === exp, {tag, " BG[17]"});
 
         read_bg_addr(10'd255, got);   exp = base + 32'd255;
         expect_local(got === exp, {tag, " BG[255]"});
@@ -566,180 +578,299 @@ module tb_calibration_loader;
         read_bg_addr(10'd256, got);   exp = base + 32'h1000;
         expect_local(got === exp, {tag, " BG[256]"});
 
+        read_bg_addr(10'd511, got);   exp = base + 32'h1000 + 32'd255;
+        expect_local(got === exp, {tag, " BG[511]"});
+
+        read_bg_addr(10'd768, got);   exp = base + 32'h3000;
+        expect_local(got === exp, {tag, " BG[768]"});
+
         read_bg_addr(10'd1023, got);  exp = base + 32'h3000 + 32'd255;
         expect_local(got === exp, {tag, " BG[1023]"});
     end
     endtask
 
-    task automatic check_klin_a_anchors(input [31:0] base, input string tag);
+    task automatic check_klin_a_key_points(input [31:0] base, input string tag);
         logic [9:0] got, exp;
         logic [31:0] temp;
     begin
-        read_klin_a_addr(10'd0, got);     temp = (base + 32'd0);
-        exp = temp[9:0];
+        read_klin_a_addr(10'd0, got);     temp = base + 32'd0;               exp = temp[9:0];
         expect_local(got === exp, {tag, " KLIN_A[0]"});
 
-        read_klin_a_addr(10'd255, got);   temp = (base + 32'd255);
-        exp = temp[9:0];
-        read_klin_a_addr(10'd256, got);   temp = (base + 32'h1000);
-        exp = temp[9:0];
+        read_klin_a_addr(10'd17, got);    temp = base + 32'd17;              exp = temp[9:0];
+        expect_local(got === exp, {tag, " KLIN_A[17]"});
+
+        read_klin_a_addr(10'd255, got);   temp = base + 32'd255;             exp = temp[9:0];
+        expect_local(got === exp, {tag, " KLIN_A[255]"});
+
+        read_klin_a_addr(10'd256, got);   temp = base + 32'h1000;            exp = temp[9:0];
         expect_local(got === exp, {tag, " KLIN_A[256]"});
 
-        read_klin_a_addr(10'd1023, got);  temp = (base + 32'h3000 + 32'd255);
-        exp = temp[9:0];
+        read_klin_a_addr(10'd1023, got);  temp = base + 32'h3000 + 32'd255;  exp = temp[9:0];
         expect_local(got === exp, {tag, " KLIN_A[1023]"});
     end
     endtask
 
-    task automatic check_klin_b_anchors(input [31:0] base, input string tag);
+    task automatic check_klin_b_key_points(input [31:0] base, input string tag);
         logic [17:0] got, exp;
         logic [31:0] temp;
     begin
-        read_klin_b_addr(10'd0, got);     temp = (base + 32'd0);
-        exp = temp[17:0];
+        read_klin_b_addr(10'd0, got);     temp = base + 32'd0;               exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_B[0]"});
 
-        read_klin_b_addr(10'd255, got);   temp = (base + 32'd255);
-        exp = temp[17:0];
+        read_klin_b_addr(10'd17, got);    temp = base + 32'd17;              exp = temp[17:0];
+        expect_local(got === exp, {tag, " KLIN_B[17]"});
+
+        read_klin_b_addr(10'd255, got);   temp = base + 32'd255;             exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_B[255]"});
 
-        read_klin_b_addr(10'd256, got);   temp = (base + 32'h1000);
-        exp = temp[17:0];
+        read_klin_b_addr(10'd256, got);   temp = base + 32'h1000;            exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_B[256]"});
 
-        read_klin_b_addr(10'd1023, got);  temp = (base + 32'h3000 + 32'd255);
-        exp = temp[17:0];
+        read_klin_b_addr(10'd1023, got);  temp = base + 32'h3000 + 32'd255;  exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_B[1023]"});
     end
     endtask
 
-    task automatic check_klin_c_anchors(input [31:0] base, input string tag);
+    task automatic check_klin_c_key_points(input [31:0] base, input string tag);
         logic [17:0] got, exp;
         logic [31:0] temp;
     begin
-        read_klin_c_addr(10'd0, got);     temp = (base + 32'd0);
-        exp = temp[17:0];
+        read_klin_c_addr(10'd0, got);     temp = base + 32'd0;               exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_C[0]"});
 
-        read_klin_c_addr(10'd255, got);   temp = (base + 32'd255);
-        exp = temp[17:0];
+        read_klin_c_addr(10'd17, got);    temp = base + 32'd17;              exp = temp[17:0];
+        expect_local(got === exp, {tag, " KLIN_C[17]"});
+
+        read_klin_c_addr(10'd255, got);   temp = base + 32'd255;             exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_C[255]"});
 
-        read_klin_c_addr(10'd256, got);   temp = (base + 32'h1000);
-        exp = temp[17:0];
+        read_klin_c_addr(10'd256, got);   temp = base + 32'h1000;            exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_C[256]"});
 
-        read_klin_c_addr(10'd1023, got);  temp = (base + 32'h3000 + 32'd255);
-        exp = temp[17:0];
+        read_klin_c_addr(10'd1023, got);  temp = base + 32'h3000 + 32'd255;  exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_C[1023]"});
     end
     endtask
 
-    task automatic check_klin_d_anchors(input [31:0] base, input string tag);
+    task automatic check_klin_d_key_points(input [31:0] base, input string tag);
         logic [17:0] got, exp;
         logic [31:0] temp;
     begin
-        read_klin_d_addr(10'd0, got);     temp = (base + 32'd0);
-        exp = temp[17:0];
+        read_klin_d_addr(10'd0, got);     temp = base + 32'd0;               exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_D[0]"});
 
-        read_klin_d_addr(10'd255, got);   temp = (base + 32'd255);
-        exp = temp[17:0];
+        read_klin_d_addr(10'd17, got);    temp = base + 32'd17;              exp = temp[17:0];
+        expect_local(got === exp, {tag, " KLIN_D[17]"});
+
+        read_klin_d_addr(10'd255, got);   temp = base + 32'd255;             exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_D[255]"});
 
-        read_klin_d_addr(10'd256, got);   temp = (base + 32'h1000);
-        exp = temp[17:0];
+        read_klin_d_addr(10'd256, got);   temp = base + 32'h1000;            exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_D[256]"});
 
-        read_klin_d_addr(10'd1023, got);  temp = (base + 32'h3000 + 32'd255);
-        exp = temp[17:0];
+        read_klin_d_addr(10'd1023, got);  temp = base + 32'h3000 + 32'd255;  exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_D[1023]"});
     end
     endtask
 
-    task automatic check_klin_e_anchors(input [31:0] base, input string tag);
+    task automatic check_klin_e_key_points(input [31:0] base, input string tag);
         logic [17:0] got, exp;
         logic [31:0] temp;
     begin
-        read_klin_e_addr(10'd0, got);     temp = (base + 32'd0);
-        exp = temp[17:0];
+        read_klin_e_addr(10'd0, got);     temp = base + 32'd0;               exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_E[0]"});
 
-        read_klin_e_addr(10'd255, got);   temp = (base + 32'd255);
-        exp = temp[17:0];
+        read_klin_e_addr(10'd17, got);    temp = base + 32'd17;              exp = temp[17:0];
+        expect_local(got === exp, {tag, " KLIN_E[17]"});
+
+        read_klin_e_addr(10'd255, got);   temp = base + 32'd255;             exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_E[255]"});
 
-        read_klin_e_addr(10'd256, got);   temp = (base + 32'h1000);
-        exp = temp[17:0];
+        read_klin_e_addr(10'd256, got);   temp = base + 32'h1000;            exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_E[256]"});
 
-        read_klin_e_addr(10'd1023, got);  temp = (base + 32'h3000 + 32'd255);
-        exp = temp[17:0];
+        read_klin_e_addr(10'd1023, got);  temp = base + 32'h3000 + 32'd255;  exp = temp[17:0];
         expect_local(got === exp, {tag, " KLIN_E[1023]"});
     end
     endtask
 
     // ------------------------------------------------------------
-    // Generic protocol suites
+    // BG flow tests
     // ------------------------------------------------------------
-    task automatic run_invalidation_suite(
+    task automatic test_bg_valid_valid_invalid;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST BG: valid -> valid -> invalid");
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+
+        reset_event_capture();
+        send_full_cal(RID_BG, 32'h1000_0000);
+        idle_cycles(8);
+        expect_local(runtime_valid[IDX_BG] == 1'b1, "BG valid #1 sets runtime_valid");
+        expect_local(saw_done_pulse == 1'b1, "BG valid #1 done");
+        expect_local(saw_cal_error == 1'b0, "BG valid #1 no error");
+        require_idle("BG valid #1");
+        check_bg_key_points(32'h1000_0000, "BG valid #1");
+
+        reset_event_capture();
+        send_full_cal(RID_BG, 32'h2000_0000);
+        idle_cycles(8);
+        expect_local(runtime_valid[IDX_BG] == 1'b1, "BG valid #2 sets runtime_valid");
+        expect_local(saw_done_pulse == 1'b1, "BG valid #2 done");
+        expect_local(saw_cal_error == 1'b0, "BG valid #2 no error");
+        require_idle("BG valid #2");
+        check_bg_key_points(32'h2000_0000, "BG valid #2");
+
+        reset_event_capture();
+        send_cal_header(RID_BG, 2'd0);
+        idle_cycles(1);
+        expect_local(runtime_valid[IDX_BG] == 1'b0, "BG invalid attempt clears runtime_valid immediately");
+        send_batch_payload_early_end(32'h3000_0000, 73);
+        idle_cycles(4);
+        expect_local(saw_cal_error == 1'b1, "BG invalid row raises error");
+        expect_local(saw_done_pulse == 1'b0, "BG invalid row no done");
+        expect_local(runtime_valid[IDX_BG] == 1'b0, "BG invalid row leaves runtime_valid low");
+        expect_local(bg_write_count_seen > 0, "BG invalid row still wrote some samples");
+        require_idle("BG invalid");
+    end
+    endtask
+
+    task automatic test_bg_invalid_then_valid;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST BG: invalid -> wait -> valid");
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+
+        reset_event_capture();
+        send_invalid_cal_early_end(RID_BG, 32'h4000_0000, 51);
+        idle_cycles(4);
+        expect_local(saw_cal_error == 1'b1, "BG initial invalid raises error");
+        expect_local(saw_done_pulse == 1'b0, "BG initial invalid no done");
+        expect_local(runtime_valid[IDX_BG] == 1'b0, "BG initial invalid keeps valid low");
+        require_idle("BG after invalid");
+
+        reset_event_capture();
+        idle_cycles(5);
+        expect_local(cal_loading == 1'b0, "BG still idle a few cycles later");
+
+        reset_event_capture();
+        send_full_cal(RID_BG, 32'h5000_0000);
+        idle_cycles(8);
+        expect_local(runtime_valid[IDX_BG] == 1'b1, "BG recovery valid sets runtime_valid");
+        expect_local(saw_done_pulse == 1'b1, "BG recovery valid done");
+        expect_local(saw_cal_error == 1'b0, "BG recovery valid no new error");
+        require_idle("BG recovery");
+        check_bg_key_points(32'h5000_0000, "BG recovery");
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Generic k-lin flow tests
+    // ------------------------------------------------------------
+    task automatic test_klin_flow(
         input [9:0] rid,
-        input int valid_idx,
-        input [31:0] good_base,
-        input [31:0] recover_base,
+        input int idx,
+        input [31:0] base1,
+        input [31:0] base2,
+        input [31:0] base_bad,
+        input [31:0] base_recover,
         input string name
     );
     begin
         $display("--------------------------------------------------");
-        $display("%s: prime valid image", name);
+        $display("TEST %s: valid -> valid -> invalid", name);
         $display("--------------------------------------------------");
+
+        hard_reset_dut();
+
         reset_event_capture();
-        send_full_cal(rid, good_base);
+        send_full_cal(rid, base1);
         idle_cycles(8);
-        expect_local(runtime_valid[valid_idx] == 1'b1, {name, " valid set"});
-        expect_local(saw_done_pulse == 1'b1, {name, " done pulse seen on valid load"});
+        expect_local(runtime_valid[idx] == 1'b1, {name, " valid #1 sets runtime_valid"});
+        expect_local(saw_done_pulse == 1'b1, {name, " valid #1 done"});
+        expect_local(saw_cal_error == 1'b0, {name, " valid #1 no error"});
+        require_idle({name, " valid #1"});
 
-        $display("--------------------------------------------------");
-        $display("%s: early end invalidates", name);
-        $display("--------------------------------------------------");
         reset_event_capture();
-        send_cal_header(rid, 2'd0);
-        send_batch_payload_early_end(good_base + 32'h0100_0000, 100);
-        idle_cycles(4);
-        expect_local(saw_cal_error == 1'b1, {name, " early-end error pulse"});
-        expect_local(saw_done_pulse == 1'b0, {name, " early-end no done pulse"});
-        expect_local(runtime_valid[valid_idx] == 1'b0, {name, " early-end clears valid"});
-
-        $display("--------------------------------------------------");
-        $display("%s: missing end invalidates", name);
-        $display("--------------------------------------------------");
-        reset_event_capture();
-        send_cal_header(rid, 2'd0);
-        send_batch_payload_missing_end(good_base + 32'h0200_0000);
-        idle_cycles(4);
-        expect_local(saw_cal_error == 1'b1, {name, " missing-end error pulse"});
-        expect_local(saw_done_pulse == 1'b0, {name, " missing-end no done pulse"});
-        expect_local(runtime_valid[valid_idx] == 1'b0, {name, " missing-end clears valid"});
-
-        $display("--------------------------------------------------");
-        $display("%s: overflow invalidates", name);
-        $display("--------------------------------------------------");
-        reset_event_capture();
-        send_cal_header(rid, 2'd0);
-        send_batch_payload_overflow(good_base + 32'h0300_0000);
-        idle_cycles(4);
-        expect_local(saw_cal_error == 1'b1, {name, " overflow error pulse"});
-        expect_local(saw_done_pulse == 1'b0, {name, " overflow no done pulse"});
-        expect_local(runtime_valid[valid_idx] == 1'b0, {name, " overflow clears valid"});
-
-        $display("--------------------------------------------------");
-        $display("%s: recovery overwrite", name);
-        $display("--------------------------------------------------");
-        reset_event_capture();
-        send_full_cal(rid, recover_base);
+        send_full_cal(rid, base2);
         idle_cycles(8);
-        expect_local(runtime_valid[valid_idx] == 1'b1, {name, " recovery re-sets valid"});
-        expect_local(saw_done_pulse == 1'b1, {name, " recovery done pulse seen"});
+        expect_local(runtime_valid[idx] == 1'b1, {name, " valid #2 sets runtime_valid"});
+        expect_local(saw_done_pulse == 1'b1, {name, " valid #2 done"});
+        expect_local(saw_cal_error == 1'b0, {name, " valid #2 no error"});
+        require_idle({name, " valid #2"});
+
+        reset_event_capture();
+        send_cal_header(rid, 2'd0);
+        idle_cycles(1);
+        expect_local(runtime_valid[idx] == 1'b0, {name, " invalid attempt clears runtime_valid immediately"});
+        send_batch_payload_early_end(base_bad, 73);
+        idle_cycles(4);
+        expect_local(saw_cal_error == 1'b1, {name, " invalid row raises error"});
+        expect_local(saw_done_pulse == 1'b0, {name, " invalid row no done"});
+        expect_local(runtime_valid[idx] == 1'b0, {name, " invalid row leaves runtime_valid low"});
+        require_idle({name, " invalid"});
+
+        $display("--------------------------------------------------");
+        $display("TEST %s: invalid -> wait -> valid", name);
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+
+        reset_event_capture();
+        send_invalid_cal_early_end(rid, base_bad + 32'h0100_0000, 51);
+        idle_cycles(4);
+        expect_local(saw_cal_error == 1'b1, {name, " initial invalid raises error"});
+        expect_local(saw_done_pulse == 1'b0, {name, " initial invalid no done"});
+        expect_local(runtime_valid[idx] == 1'b0, {name, " initial invalid keeps valid low"});
+        require_idle({name, " after invalid"});
+
+        reset_event_capture();
+        idle_cycles(5);
+        expect_local(cal_loading == 1'b0, {name, " still idle a few cycles later"});
+
+        reset_event_capture();
+        send_full_cal(rid, base_recover);
+        idle_cycles(8);
+        expect_local(runtime_valid[idx] == 1'b1, {name, " recovery valid sets runtime_valid"});
+        expect_local(saw_done_pulse == 1'b1, {name, " recovery valid done"});
+        expect_local(saw_cal_error == 1'b0, {name, " recovery valid no new error"});
+        require_idle({name, " recovery"});
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // K-lin readback tests after recovery
+    // ------------------------------------------------------------
+    task automatic test_klin_readbacks;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST: k-lin key point readbacks");
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+
+        send_full_cal(RID_KLIN_A, 32'h6100_0000);
+        send_full_cal(RID_KLIN_B, 32'h6200_0000);
+        send_full_cal(RID_KLIN_C, 32'h6300_0000);
+        send_full_cal(RID_KLIN_D, 32'h6400_0000);
+        send_full_cal(RID_KLIN_E, 32'h6500_0000);
+        idle_cycles(8);
+
+        expect_local(runtime_valid[IDX_KLIN_A] == 1'b1, "KLIN_A runtime_valid high");
+        expect_local(runtime_valid[IDX_KLIN_B] == 1'b1, "KLIN_B runtime_valid high");
+        expect_local(runtime_valid[IDX_KLIN_C] == 1'b1, "KLIN_C runtime_valid high");
+        expect_local(runtime_valid[IDX_KLIN_D] == 1'b1, "KLIN_D runtime_valid high");
+        expect_local(runtime_valid[IDX_KLIN_E] == 1'b1, "KLIN_E runtime_valid high");
+
+        check_klin_a_key_points(32'h6100_0000, "KLIN_A");
+        check_klin_b_key_points(32'h6200_0000, "KLIN_B");
+        check_klin_c_key_points(32'h6300_0000, "KLIN_C");
+        check_klin_d_key_points(32'h6400_0000, "KLIN_D");
+        check_klin_e_key_points(32'h6500_0000, "KLIN_E");
     end
     endtask
 
@@ -757,29 +888,27 @@ module tb_calibration_loader;
         rst = 1'b0;
         idle_cycles(2);
 
-        // BG full protocol + readback
-        run_invalidation_suite(10'd0, 0, 32'h0001_0000, 32'h0002_0000, "BG_SUB");
-        check_bg_anchors(32'h0002_0000, "BG_SUB recovery");
+        // BG
+        test_bg_valid_valid_invalid();
+        test_bg_invalid_then_valid();
 
-        // KLIN_A full protocol + readback
-        run_invalidation_suite(10'd24, 3, 32'h0011_0000, 32'h0012_0000, "KLIN_A");
-        check_klin_a_anchors(32'h0012_0000, "KLIN_A recovery");
+        // k-lin
+        test_klin_flow(RID_KLIN_A, IDX_KLIN_A,
+                       32'h1100_0000, 32'h1200_0000, 32'h1300_0000, 32'h1400_0000, "KLIN_A");
 
-        // KLIN_B full protocol + readback
-        run_invalidation_suite(10'd25, 4, 32'h0021_0000, 32'h0022_0000, "KLIN_B");
-        check_klin_b_anchors(32'h0022_0000, "KLIN_B recovery");
+        test_klin_flow(RID_KLIN_B, IDX_KLIN_B,
+                       32'h2100_0000, 32'h2200_0000, 32'h2300_0000, 32'h2400_0000, "KLIN_B");
 
-        // KLIN_C full protocol + readback
-        run_invalidation_suite(10'd26, 5, 32'h0031_0000, 32'h0032_0000, "KLIN_C");
-        check_klin_c_anchors(32'h0032_0000, "KLIN_C recovery");
+        test_klin_flow(RID_KLIN_C, IDX_KLIN_C,
+                       32'h3100_0000, 32'h3200_0000, 32'h3300_0000, 32'h3400_0000, "KLIN_C");
 
-        // KLIN_D full protocol + readback
-        run_invalidation_suite(10'd27, 6, 32'h0041_0000, 32'h0042_0000, "KLIN_D");
-        check_klin_d_anchors(32'h0042_0000, "KLIN_D recovery");
+        test_klin_flow(RID_KLIN_D, IDX_KLIN_D,
+                       32'h4100_0000, 32'h4200_0000, 32'h4300_0000, 32'h4400_0000, "KLIN_D");
 
-        // KLIN_E full protocol + readback
-        run_invalidation_suite(10'd28, 7, 32'h0051_0000, 32'h0052_0000, "KLIN_E");
-        check_klin_e_anchors(32'h0052_0000, "KLIN_E recovery");
+        test_klin_flow(RID_KLIN_E, IDX_KLIN_E,
+                       32'h5100_0000, 32'h5200_0000, 32'h5300_0000, 32'h5400_0000, "KLIN_E");
+
+        test_klin_readbacks();
 
         $display("=================================");
         $display("TOTAL PASS = %0d", pass);
@@ -789,4 +918,3 @@ module tb_calibration_loader;
     end
 
 endmodule
-

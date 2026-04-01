@@ -41,7 +41,66 @@ module udp_processing_top (
     output wire [31:0] dsp_in_data,
 
     input  wire        dsp_out_valid,
-    input  wire [31:0] dsp_out_data
+    input  wire [31:0] dsp_out_data,
+
+    // -------------------------------------------------------------------------
+    // Calibration policy
+    // -------------------------------------------------------------------------
+    input  wire        allow_cal,
+    input  wire        dsp_busy,
+
+    // -------------------------------------------------------------------------
+    // Calibration status upward
+    // -------------------------------------------------------------------------
+    output wire        cal_loading,
+    output wire        cal_done_pulse,
+    output wire        cal_error,
+    output wire        cal_rejected_busy,
+    output wire        cal_rejected_mode,
+    output wire [7:0]  runtime_valid,
+
+    // -------------------------------------------------------------------------
+    // Calibration BRAM write buses upward into dsp_core
+    // -------------------------------------------------------------------------
+    output wire        bg_wr_en,
+    output wire [0:0]  bg_wr_we,
+    output wire [9:0]  bg_wr_addr,
+    output wire [31:0] bg_wr_data,
+
+    output wire        disp_a_wr_en,
+    output wire [0:0]  disp_a_wr_we,
+    output wire [9:0]  disp_a_wr_addr,
+    output wire [31:0] disp_a_wr_data,
+
+    output wire        disp_b_wr_en,
+    output wire [0:0]  disp_b_wr_we,
+    output wire [9:0]  disp_b_wr_addr,
+    output wire [31:0] disp_b_wr_data,
+
+    output wire        klin_a_wr_en,
+    output wire [0:0]  klin_a_wr_we,
+    output wire [9:0]  klin_a_wr_addr,
+    output wire [31:0] klin_a_wr_data,
+
+    output wire        klin_b_wr_en,
+    output wire [0:0]  klin_b_wr_we,
+    output wire [9:0]  klin_b_wr_addr,
+    output wire [31:0] klin_b_wr_data,
+
+    output wire        klin_c_wr_en,
+    output wire [0:0]  klin_c_wr_we,
+    output wire [9:0]  klin_c_wr_addr,
+    output wire [31:0] klin_c_wr_data,
+
+    output wire        klin_d_wr_en,
+    output wire [0:0]  klin_d_wr_we,
+    output wire [9:0]  klin_d_wr_addr,
+    output wire [31:0] klin_d_wr_data,
+
+    output wire        klin_e_wr_en,
+    output wire [0:0]  klin_e_wr_we,
+    output wire [9:0]  klin_e_wr_addr,
+    output wire [31:0] klin_e_wr_data
 );
 
     localparam APP_UDP_PORT       = 16'd5001;
@@ -69,7 +128,6 @@ module udp_processing_top (
 
     reg        stage_full;
     reg        replay_active;
-    // More Decl<3s
 
     wire [7:0] app_tx_tdata;
     wire       app_tx_tvalid;
@@ -128,13 +186,17 @@ module udp_processing_top (
     wire       parser_tvalid = udp_rx_tvalid && udp_rx_tready && cur_pkt_accept;
     wire       parser_tlast  = udp_rx_tvalid && udp_rx_tready && udp_rx_tlast && cur_pkt_accept;
 
-    wire        batch_valid_w;
-    wire [9:0]  batch_row_id_w;
+    wire        hdr_valid_w;
+    wire        hdr_error_w;
+    wire        pkt_is_data_w;
+    wire        pkt_is_cal_w;
+    wire [7:0]  pkt_msg_type_w;
     wire [1:0]  batch_id_w;
+    wire [9:0]  row_id_w;
+    wire        batch_valid_w;
     wire [31:0] sample_data_w;
     wire        sample_valid_w;
     wire        sample_last_w;
-    wire        hdr_error_w;
 
     app_packet_rx u_rx (
         .clk           (clk),
@@ -143,17 +205,112 @@ module udp_processing_top (
         .udp_rx_tvalid (parser_tvalid),
         .udp_rx_tready (),
         .udp_rx_tlast  (parser_tlast),
-        .batch_valid   (batch_valid_w),
-        .batch_row_id  (batch_row_id_w),
+
+        .hdr_valid     (hdr_valid_w),
+        .hdr_error     (hdr_error_w),
+        .pkt_is_data   (pkt_is_data_w),
+        .pkt_is_cal    (pkt_is_cal_w),
+        .pkt_msg_type  (pkt_msg_type_w),
         .batch_id      (batch_id_w),
+        .row_id        (row_id_w),
+
+        .batch_valid   (batch_valid_w),
         .sample_data   (sample_data_w),
         .sample_valid  (sample_valid_w),
-        .sample_last   (sample_last_w),
-        .hdr_error     (hdr_error_w)
+        .sample_last   (sample_last_w)
     );
 
     // =========================================================================
-    // Single batch staging buffer
+    // Latch active packet type for sample routing
+    // =========================================================================
+    reg pkt_data_active;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            pkt_data_active <= 1'b0;
+        end else begin
+            if (hdr_valid_w)
+                pkt_data_active <= pkt_is_data_w;
+
+            if (batch_valid_w)
+                pkt_data_active <= 1'b0;
+        end
+    end
+
+    wire data_sample_valid_w = sample_valid_w && pkt_data_active;
+    wire data_sample_last_w  = sample_last_w  && pkt_data_active;
+
+    // =========================================================================
+    // calibration_loader
+    // =========================================================================
+    calibration_loader u_cal_loader (
+        .clk               (clk),
+        .rst               (rst),
+
+        .hdr_valid         (hdr_valid_w),
+        .pkt_is_cal        (pkt_is_cal_w),
+        .pkt_msg_type      (pkt_msg_type_w),
+        .batch_id          (batch_id_w),
+        .row_id            (row_id_w),
+
+        .sample_valid      (sample_valid_w),
+        .sample_data       (sample_data_w),
+        .sample_last       (sample_last_w),
+        .batch_valid       (batch_valid_w),
+
+        .allow_cal         (allow_cal),
+        .dsp_busy          (dsp_busy),
+
+        .cal_loading       (cal_loading),
+        .cal_done_pulse    (cal_done_pulse),
+        .cal_error         (cal_error),
+        .cal_rejected_busy (cal_rejected_busy),
+        .cal_rejected_mode (cal_rejected_mode),
+        .runtime_valid     (runtime_valid),
+
+        .bg_wr_en          (bg_wr_en),
+        .bg_wr_we          (bg_wr_we),
+        .bg_wr_addr        (bg_wr_addr),
+        .bg_wr_data        (bg_wr_data),
+
+        .disp_a_wr_en      (disp_a_wr_en),
+        .disp_a_wr_we      (disp_a_wr_we),
+        .disp_a_wr_addr    (disp_a_wr_addr),
+        .disp_a_wr_data    (disp_a_wr_data),
+
+        .disp_b_wr_en      (disp_b_wr_en),
+        .disp_b_wr_we      (disp_b_wr_we),
+        .disp_b_wr_addr    (disp_b_wr_addr),
+        .disp_b_wr_data    (disp_b_wr_data),
+
+        .klin_a_wr_en      (klin_a_wr_en),
+        .klin_a_wr_we      (klin_a_wr_we),
+        .klin_a_wr_addr    (klin_a_wr_addr),
+        .klin_a_wr_data    (klin_a_wr_data),
+
+        .klin_b_wr_en      (klin_b_wr_en),
+        .klin_b_wr_we      (klin_b_wr_we),
+        .klin_b_wr_addr    (klin_b_wr_addr),
+        .klin_b_wr_data    (klin_b_wr_data),
+
+        .klin_c_wr_en      (klin_c_wr_en),
+        .klin_c_wr_we      (klin_c_wr_we),
+        .klin_c_wr_addr    (klin_c_wr_addr),
+        .klin_c_wr_data    (klin_c_wr_data),
+
+        .klin_d_wr_en      (klin_d_wr_en),
+        .klin_d_wr_we      (klin_d_wr_we),
+        .klin_d_wr_addr    (klin_d_wr_addr),
+        .klin_d_wr_data    (klin_d_wr_data),
+
+        .klin_e_wr_en      (klin_e_wr_en),
+        .klin_e_wr_we      (klin_e_wr_we),
+        .klin_e_wr_addr    (klin_e_wr_addr),
+        .klin_e_wr_data    (klin_e_wr_data)
+    );
+
+    // =========================================================================
+    // Single batch staging buffer (data packets only)
     // =========================================================================
     reg [31:0] stage_mem [0:RX_BATCH_SAMPLES-1];
     reg [7:0]  stage_wr_idx;
@@ -178,12 +335,12 @@ module udp_processing_top (
             replay_active   <= 1'b0;
             replay_idx      <= 8'd0;
         end else begin
-            if (sample_valid_w) begin
+            if (data_sample_valid_w) begin
                 stage_mem[stage_wr_idx] <= sample_data_w;
 
-                if (sample_last_w) begin
+                if (data_sample_last_w) begin
                     stage_wr_idx    <= 8'd0;
-                    stage_row_id    <= batch_row_id_w;
+                    stage_row_id    <= row_id_w;
                     stage_batch_id  <= batch_id_w;
                     stage_src_ip    <= cur_pkt_src_ip;
                     stage_src_port  <= cur_pkt_src_port;
@@ -210,7 +367,7 @@ module udp_processing_top (
     end
 
     // =========================================================================
-    // 2-entry routing table
+    // 2-entry routing table (data packets only)
     // =========================================================================
     reg        route0_valid, route1_valid;
     reg [9:0]  route0_row_id, route1_row_id;
@@ -228,21 +385,21 @@ module udp_processing_top (
             route0_src_port <= 16'd0;
             route1_src_port <= 16'd0;
         end else begin
-            if (sample_valid_w && sample_last_w) begin
-                if (route0_valid && (route0_row_id == batch_row_id_w)) begin
+            if (data_sample_valid_w && data_sample_last_w) begin
+                if (route0_valid && (route0_row_id == row_id_w)) begin
                     route0_ip       <= cur_pkt_src_ip;
                     route0_src_port <= cur_pkt_src_port;
-                end else if (route1_valid && (route1_row_id == batch_row_id_w)) begin
+                end else if (route1_valid && (route1_row_id == row_id_w)) begin
                     route1_ip       <= cur_pkt_src_ip;
                     route1_src_port <= cur_pkt_src_port;
                 end else if (!route0_valid) begin
                     route0_valid    <= 1'b1;
-                    route0_row_id   <= batch_row_id_w;
+                    route0_row_id   <= row_id_w;
                     route0_ip       <= cur_pkt_src_ip;
                     route0_src_port <= cur_pkt_src_port;
                 end else begin
                     route1_valid    <= 1'b1;
-                    route1_row_id   <= batch_row_id_w;
+                    route1_row_id   <= row_id_w;
                     route1_ip       <= cur_pkt_src_ip;
                     route1_src_port <= cur_pkt_src_port;
                 end

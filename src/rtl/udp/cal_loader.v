@@ -1,6 +1,9 @@
+
 `timescale 1ns / 1ps
 
-module calibration_loader (
+module calibration_loader #(
+    parameter integer WATCHDOG_CYCLES = 1024
+)(
     input  wire        clk,
     input  wire        rst,
 
@@ -18,7 +21,7 @@ module calibration_loader (
 
     // Policy control
     input  wire        allow_cal,
-    input  wire        dsp_busy,
+    input  wire        dsp_busy,   // preserved for interface compatibility; not used to reject loads
 
     // Status
     output reg         cal_loading,
@@ -26,7 +29,7 @@ module calibration_loader (
     output reg         cal_error,
     output reg         cal_rejected_busy,
     output reg         cal_rejected_mode,
-    output reg  [7:0]  runtime_valid, 
+    output reg  [7:0]  runtime_valid,
 
     // background BRAM write interface (Port A)
     output reg         bg_wr_en,
@@ -99,12 +102,15 @@ module calibration_loader (
     localparam ST_LOADING = 2'd1;
     localparam ST_WAITHDR = 2'd2;
 
+    localparam integer WD_W = (WATCHDOG_CYCLES <= 2) ? 1 : $clog2(WATCHDOG_CYCLES);
+
     reg [1:0] state;
     reg [2:0] cur_target_idx;
     reg [9:0] cur_target_row_id;
     reg [1:0] cur_batch_id;
     reg [7:0] sample_count;
     reg [9:0] wr_addr;
+    reg [WD_W-1:0] watchdog_ctr;
 
     function is_valid_cal_row;
         input [9:0] rid;
@@ -149,27 +155,40 @@ module calibration_loader (
         cur_batch_id      <= 2'd0;
         sample_count      <= 8'd0;
         wr_addr           <= 10'd0;
+        watchdog_ctr      <= {WD_W{1'b0}};
     end
     endtask
 
-    task automatic abort_and_invalidate_current;
+    task automatic abort_current;
     begin
         cal_error <= 1'b1;
-        runtime_valid[cur_target_idx] <= 1'b0;
         reset_transaction_state();
     end
     endtask
 
-    task automatic abort_and_invalidate_idx(input [2:0] idx);
+    task automatic start_transaction(
+        input [9:0] rid,
+        input [2:0] idx,
+        input [1:0] bid
+    );
     begin
-        cal_error <= 1'b1;
         runtime_valid[idx] <= 1'b0;
-        reset_transaction_state();
+
+        cur_target_row_id <= rid;
+        cur_target_idx    <= idx;
+        cur_batch_id      <= bid;
+        sample_count      <= 8'd0;
+        wr_addr           <= {bid, 8'd0};
+        cal_loading       <= 1'b1;
+        state             <= ST_LOADING;
+        watchdog_ctr      <= {WD_W{1'b0}};
     end
     endtask
 
     wire active_sample = (state == ST_LOADING) && sample_valid;
     wire final_sample  = active_sample && (sample_count == 8'd255);
+    wire watchdog_fire = ((state == ST_LOADING) || (state == ST_WAITHDR)) &&
+                         (watchdog_ctr == WATCHDOG_CYCLES-1);
 
     // ------------------------------------------------------------
     // combinational write outputs
@@ -272,7 +291,7 @@ module calibration_loader (
     end
 
     // ------------------------------------------------------------
-    // FSM
+    // FSM + watchdog
     // ------------------------------------------------------------
     always @(posedge clk or posedge rst) begin
         if (rst) begin
@@ -282,6 +301,7 @@ module calibration_loader (
             cur_batch_id      <= 2'd0;
             sample_count      <= 8'd0;
             wr_addr           <= 10'd0;
+            watchdog_ctr      <= {WD_W{1'b0}};
 
             cal_loading       <= 1'b0;
             cal_done_pulse    <= 1'b0;
@@ -295,96 +315,112 @@ module calibration_loader (
             cal_rejected_busy <= 1'b0;
             cal_rejected_mode <= 1'b0;
 
-            if (hdr_valid) begin
-                if (!pkt_is_cal || (pkt_msg_type != 8'h02)) begin
-                    if (state != ST_IDLE)
-                        abort_and_invalidate_current();
-                end else if (!allow_cal) begin
-                    cal_rejected_mode <= 1'b1;
-                    if (state != ST_IDLE)
-                        abort_and_invalidate_current();
-                end else if (dsp_busy) begin
-                    cal_rejected_busy <= 1'b1;
-                    if (state != ST_IDLE)
-                        abort_and_invalidate_current();
-                end else if (!is_valid_cal_row(row_id)) begin
-                    cal_error <= 1'b1;
-                    reset_transaction_state();
-                end else begin
-                    case (state)
-                        ST_IDLE: begin
-                            if (batch_id != 2'd0) begin
-                                abort_and_invalidate_idx(cal_row_to_idx(row_id));
-                            end else begin
-                                cur_target_row_id <= row_id;
-                                cur_target_idx    <= cal_row_to_idx(row_id);
-                                cur_batch_id      <= batch_id;
-                                sample_count      <= 8'd0;
-                                wr_addr           <= {batch_id, 8'd0};
-                                cal_loading       <= 1'b1;
-                                state             <= ST_LOADING;
-                            end
-                        end
-
-                        ST_WAITHDR: begin
-                            if ((row_id != cur_target_row_id) ||
-                                (batch_id != (cur_batch_id + 2'd1))) begin
-                                abort_and_invalidate_current();
-                            end else begin
-                                cur_batch_id <= batch_id;
-                                sample_count <= 8'd0;
-                                wr_addr      <= {batch_id, 8'd0};
-                                cal_loading  <= 1'b1;
-                                state        <= ST_LOADING;
-                            end
-                        end
-
-                        ST_LOADING: begin
-                            abort_and_invalidate_current();
-                        end
-
-                        default: begin
-                            abort_and_invalidate_current();
-                        end
-                    endcase
-                end
+            // default watchdog behavior:
+            // count only while an in-flight transaction exists
+            if ((state == ST_LOADING) || (state == ST_WAITHDR)) begin
+                if (!watchdog_fire)
+                    watchdog_ctr <= watchdog_ctr + {{(WD_W-1){1'b0}}, 1'b1};
+            end else begin
+                watchdog_ctr <= {WD_W{1'b0}};
             end
 
-            if (state == ST_LOADING) begin
-                if (sample_valid) begin
-                    if (!final_sample) begin
-                        if (sample_last || batch_valid) begin
-                            abort_and_invalidate_current();
-                        end else begin
-                            sample_count <= sample_count + 8'd1;
-                            wr_addr      <= wr_addr + 10'd1;
-                        end
+            // watchdog timeout has highest priority among runtime faults
+            if (watchdog_fire) begin
+                abort_current();
+            end else begin
+
+                // ----------------------------------------------------
+                // Header processing
+                // ----------------------------------------------------
+                if (hdr_valid) begin
+                    if (!pkt_is_cal || (pkt_msg_type != 8'h02)) begin
+                        if (state != ST_IDLE)
+                            abort_current();
+                    end else if (!allow_cal) begin
+                        cal_rejected_mode <= 1'b1;
+                        if (state != ST_IDLE)
+                            abort_current();
+                    end else if (!is_valid_cal_row(row_id)) begin
+                        cal_error <= 1'b1;
+                        if (state != ST_IDLE)
+                            reset_transaction_state();
                     end else begin
-                        if (!sample_last || !batch_valid) begin
-                            abort_and_invalidate_current();
-                        end else begin
-                            if (cur_batch_id == 2'd3) begin
-                                runtime_valid[cur_target_idx] <= 1'b1;
-                                cal_done_pulse                <= 1'b1;
-                                reset_transaction_state();
+                        case (state)
+                            ST_IDLE: begin
+                                if (batch_id != 2'd0) begin
+                                    cal_error <= 1'b1;
+                                    reset_transaction_state();
+                                end else begin
+                                    start_transaction(row_id, cal_row_to_idx(row_id), batch_id);
+                                end
+                            end
+
+                            ST_WAITHDR: begin
+                                if ((row_id != cur_target_row_id) ||
+                                    (batch_id != (cur_batch_id + 2'd1))) begin
+                                    abort_current();
+                                end else begin
+                                    cur_batch_id <= batch_id;
+                                    sample_count <= 8'd0;
+                                    wr_addr      <= {batch_id, 8'd0};
+                                    cal_loading  <= 1'b1;
+                                    state        <= ST_LOADING;
+                                    watchdog_ctr <= {WD_W{1'b0}};
+                                end
+                            end
+
+                            ST_LOADING: begin
+                                abort_current();
+                            end
+
+                            default: begin
+                                abort_current();
+                            end
+                        endcase
+                    end
+                end
+
+                // ----------------------------------------------------
+                // Payload processing
+                // ----------------------------------------------------
+                if (state == ST_LOADING) begin
+                    if (sample_valid) begin
+                        if (!final_sample) begin
+                            if (sample_last || batch_valid) begin
+                                abort_current();
                             end else begin
-                                cal_loading  <= 1'b0;
-                                state        <= ST_WAITHDR;
-                                sample_count <= 8'd0;
-                                wr_addr      <= 10'd0;
+                                sample_count <= sample_count + 8'd1;
+                                wr_addr      <= wr_addr + 10'd1;
+                                watchdog_ctr <= {WD_W{1'b0}};
+                            end
+                        end else begin
+                            if (!sample_last || !batch_valid) begin
+                                abort_current();
+                            end else begin
+                                if (cur_batch_id == 2'd3) begin
+                                    runtime_valid[cur_target_idx] <= 1'b1;
+                                    cal_done_pulse                <= 1'b1;
+                                    reset_transaction_state();
+                                end else begin
+                                    cal_loading  <= 1'b0;
+                                    state        <= ST_WAITHDR;
+                                    sample_count <= 8'd0;
+                                    wr_addr      <= 10'd0;
+                                    watchdog_ctr <= {WD_W{1'b0}};
+                                end
                             end
                         end
+                    end else if (batch_valid) begin
+                        abort_current();
                     end
-                end else if (batch_valid) begin
-                    abort_and_invalidate_current();
-                end
-            end else begin
-                if (sample_valid || batch_valid) begin
-                    if (state == ST_WAITHDR)
-                        abort_and_invalidate_current();
-                    else begin
-                        cal_error <= 1'b1;
-                        reset_transaction_state();
+                end else begin
+                    if (sample_valid || batch_valid) begin
+                        if (state == ST_WAITHDR)
+                            abort_current();
+                        else begin
+                            cal_error <= 1'b1;
+                            reset_transaction_state();
+                        end
                     end
                 end
             end
@@ -392,4 +428,3 @@ module calibration_loader (
     end
 
 endmodule
-
