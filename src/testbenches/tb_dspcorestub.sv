@@ -1,21 +1,15 @@
+
 `timescale 1ns / 1ps
 // =============================================================================
 // tb_dspcorestub
 //
-// Holistic unit testbench for dsp_core_top first-half passthrough stub.
+// Tests:
+// 1) Original DSP stub row behavior still works
+// 2) BG + k-lin calibration write buses are correctly accepted by dsp_core_top
 //
-// Validates:
-// - 1024 input samples per row are accepted
-// - 512 output samples per row are emitted
-// - output[k] = input[k] for k = 0..511
-// - out_row_start pulses on first output sample only
-// - row_done pulses on last output sample only
-// - busy goes high during row processing and returns low after completion
-// - multiple rows work correctly
-// - input gaps during row fill do not break correctness
-//
-// Important DUT contract:
-// - do not start a new row while busy=1
+// Notes:
+// - disp-comp buses are driven idle in this phase
+// - calibration writes are checked through simulation-only shadow memories
 // =============================================================================
 
 module tb_dspcorestub;
@@ -33,6 +27,48 @@ module tb_dspcorestub;
     logic        in_row_start;
     logic [31:0] in_data;
 
+    logic [7:0]  runtime_valid;
+
+    logic        bg_wr_en;
+    logic [0:0]  bg_wr_we;
+    logic [9:0]  bg_wr_addr;
+    logic [31:0] bg_wr_data;
+
+    logic        disp_a_wr_en;
+    logic [0:0]  disp_a_wr_we;
+    logic [9:0]  disp_a_wr_addr;
+    logic [31:0] disp_a_wr_data;
+
+    logic        disp_b_wr_en;
+    logic [0:0]  disp_b_wr_we;
+    logic [9:0]  disp_b_wr_addr;
+    logic [31:0] disp_b_wr_data;
+
+    logic        klin_a_wr_en;
+    logic [0:0]  klin_a_wr_we;
+    logic [9:0]  klin_a_wr_addr;
+    logic [31:0] klin_a_wr_data;
+
+    logic        klin_b_wr_en;
+    logic [0:0]  klin_b_wr_we;
+    logic [9:0]  klin_b_wr_addr;
+    logic [31:0] klin_b_wr_data;
+
+    logic        klin_c_wr_en;
+    logic [0:0]  klin_c_wr_we;
+    logic [9:0]  klin_c_wr_addr;
+    logic [31:0] klin_c_wr_data;
+
+    logic        klin_d_wr_en;
+    logic [0:0]  klin_d_wr_we;
+    logic [9:0]  klin_d_wr_addr;
+    logic [31:0] klin_d_wr_data;
+
+    logic        klin_e_wr_en;
+    logic [0:0]  klin_e_wr_we;
+    logic [9:0]  klin_e_wr_addr;
+    logic [31:0] klin_e_wr_data;
+
     wire         out_valid;
     wire         out_row_start;
     wire [31:0]  out_data;
@@ -43,16 +79,60 @@ module tb_dspcorestub;
         .IN_SAMPLES_PER_ROW (IN_SAMPLES_PER_ROW),
         .OUT_SAMPLES_PER_ROW(OUT_SAMPLES_PER_ROW)
     ) dut (
-        .clk          (clk),
-        .rst          (rst),
-        .in_valid     (in_valid),
-        .in_row_start (in_row_start),
-        .in_data      (in_data),
-        .out_valid    (out_valid),
-        .out_row_start(out_row_start),
-        .out_data     (out_data),
-        .busy         (busy),
-        .row_done     (row_done)
+        .clk           (clk),
+        .rst           (rst),
+
+        .in_valid      (in_valid),
+        .in_row_start  (in_row_start),
+        .in_data       (in_data),
+
+        .runtime_valid (runtime_valid),
+
+        .bg_wr_en      (bg_wr_en),
+        .bg_wr_we      (bg_wr_we),
+        .bg_wr_addr    (bg_wr_addr),
+        .bg_wr_data    (bg_wr_data),
+
+        .disp_a_wr_en  (disp_a_wr_en),
+        .disp_a_wr_we  (disp_a_wr_we),
+        .disp_a_wr_addr(disp_a_wr_addr),
+        .disp_a_wr_data(disp_a_wr_data),
+
+        .disp_b_wr_en  (disp_b_wr_en),
+        .disp_b_wr_we  (disp_b_wr_we),
+        .disp_b_wr_addr(disp_b_wr_addr),
+        .disp_b_wr_data(disp_b_wr_data),
+
+        .klin_a_wr_en  (klin_a_wr_en),
+        .klin_a_wr_we  (klin_a_wr_we),
+        .klin_a_wr_addr(klin_a_wr_addr),
+        .klin_a_wr_data(klin_a_wr_data),
+
+        .klin_b_wr_en  (klin_b_wr_en),
+        .klin_b_wr_we  (klin_b_wr_we),
+        .klin_b_wr_addr(klin_b_wr_addr),
+        .klin_b_wr_data(klin_b_wr_data),
+
+        .klin_c_wr_en  (klin_c_wr_en),
+        .klin_c_wr_we  (klin_c_wr_we),
+        .klin_c_wr_addr(klin_c_wr_addr),
+        .klin_c_wr_data(klin_c_wr_data),
+
+        .klin_d_wr_en  (klin_d_wr_en),
+        .klin_d_wr_we  (klin_d_wr_we),
+        .klin_d_wr_addr(klin_d_wr_addr),
+        .klin_d_wr_data(klin_d_wr_data),
+
+        .klin_e_wr_en  (klin_e_wr_en),
+        .klin_e_wr_we  (klin_e_wr_we),
+        .klin_e_wr_addr(klin_e_wr_addr),
+        .klin_e_wr_data(klin_e_wr_data),
+
+        .out_valid     (out_valid),
+        .out_row_start (out_row_start),
+        .out_data      (out_data),
+        .busy          (busy),
+        .row_done      (row_done)
     );
 
     // -------------------------------------------------------------------------
@@ -112,15 +192,47 @@ module tb_dspcorestub;
     task automatic drive_idle_cycle;
     begin
         @(posedge clk);
-        in_valid     <= 1'b0;
-        in_row_start <= 1'b0;
-        in_data      <= 32'd0;
+        in_valid      <= 1'b0;
+        in_row_start  <= 1'b0;
+        in_data       <= 32'd0;
+        bg_wr_en      <= 1'b0;
+        bg_wr_we      <= 1'b0;
+        bg_wr_addr    <= 10'd0;
+        bg_wr_data    <= 32'd0;
+        disp_a_wr_en  <= 1'b0;
+        disp_a_wr_we  <= 1'b0;
+        disp_a_wr_addr<= 10'd0;
+        disp_a_wr_data<= 32'd0;
+        disp_b_wr_en  <= 1'b0;
+        disp_b_wr_we  <= 1'b0;
+        disp_b_wr_addr<= 10'd0;
+        disp_b_wr_data<= 32'd0;
+        klin_a_wr_en  <= 1'b0;
+        klin_a_wr_we  <= 1'b0;
+        klin_a_wr_addr<= 10'd0;
+        klin_a_wr_data<= 32'd0;
+        klin_b_wr_en  <= 1'b0;
+        klin_b_wr_we  <= 1'b0;
+        klin_b_wr_addr<= 10'd0;
+        klin_b_wr_data<= 32'd0;
+        klin_c_wr_en  <= 1'b0;
+        klin_c_wr_we  <= 1'b0;
+        klin_c_wr_addr<= 10'd0;
+        klin_c_wr_data<= 32'd0;
+        klin_d_wr_en  <= 1'b0;
+        klin_d_wr_we  <= 1'b0;
+        klin_d_wr_addr<= 10'd0;
+        klin_d_wr_data<= 32'd0;
+        klin_e_wr_en  <= 1'b0;
+        klin_e_wr_we  <= 1'b0;
+        klin_e_wr_addr<= 10'd0;
+        klin_e_wr_data<= 32'd0;
     end
     endtask
 
     task automatic drive_sample(
-        input bit         valid_i,
-        input bit         row_start_i,
+        input bit          valid_i,
+        input bit          row_start_i,
         input logic [31:0] data_i
     );
     begin
@@ -133,12 +245,54 @@ module tb_dspcorestub;
 
     task automatic reset_dut;
     begin
-        rst          <= 1'b1;
-        in_valid     <= 1'b0;
-        in_row_start <= 1'b0;
-        in_data      <= 32'd0;
+        rst           <= 1'b1;
+        in_valid      <= 1'b0;
+        in_row_start  <= 1'b0;
+        in_data       <= 32'd0;
+        runtime_valid <= 8'h00;
+
+        bg_wr_en      <= 1'b0;
+        bg_wr_we      <= 1'b0;
+        bg_wr_addr    <= 10'd0;
+        bg_wr_data    <= 32'd0;
+
+        disp_a_wr_en  <= 1'b0;
+        disp_a_wr_we  <= 1'b0;
+        disp_a_wr_addr<= 10'd0;
+        disp_a_wr_data<= 32'd0;
+
+        disp_b_wr_en  <= 1'b0;
+        disp_b_wr_we  <= 1'b0;
+        disp_b_wr_addr<= 10'd0;
+        disp_b_wr_data<= 32'd0;
+
+        klin_a_wr_en  <= 1'b0;
+        klin_a_wr_we  <= 1'b0;
+        klin_a_wr_addr<= 10'd0;
+        klin_a_wr_data<= 32'd0;
+
+        klin_b_wr_en  <= 1'b0;
+        klin_b_wr_we  <= 1'b0;
+        klin_b_wr_addr<= 10'd0;
+        klin_b_wr_data<= 32'd0;
+
+        klin_c_wr_en  <= 1'b0;
+        klin_c_wr_we  <= 1'b0;
+        klin_c_wr_addr<= 10'd0;
+        klin_c_wr_data<= 32'd0;
+
+        klin_d_wr_en  <= 1'b0;
+        klin_d_wr_we  <= 1'b0;
+        klin_d_wr_addr<= 10'd0;
+        klin_d_wr_data<= 32'd0;
+
+        klin_e_wr_en  <= 1'b0;
+        klin_e_wr_we  <= 1'b0;
+        klin_e_wr_addr<= 10'd0;
+        klin_e_wr_data<= 32'd0;
+
         wait_clk(5);
-        rst          <= 1'b0;
+        rst <= 1'b0;
         wait_clk(2);
     end
     endtask
@@ -159,15 +313,6 @@ module tb_dspcorestub;
     end
     endtask
 
-    // -------------------------------------------------------------------------
-    // Send one row
-    //
-    // base defines sample pattern:
-    // sample[i] = base + i
-    //
-    // gap_every_n_valids = 0 means fully contiguous
-    // otherwise insert gap_len idle cycles after each N valid samples
-    // -------------------------------------------------------------------------
     task automatic send_row(
         input int          row_id,
         input logic [31:0] base,
@@ -198,7 +343,6 @@ module tb_dspcorestub;
             end
         end
 
-        // release inputs after row send
         drive_idle_cycle();
     end
     endtask
@@ -213,6 +357,105 @@ module tb_dspcorestub;
             drive_idle_cycle();
         end
         fatal_check(0, "timed out waiting for DUT idle and empty expected queue");
+    end
+    endtask
+
+    // -------------------------------------------------------------------------
+    // Calibration write helpers
+    // -------------------------------------------------------------------------
+    task automatic write_bg(input [9:0] addr, input [31:0] data);
+    begin
+        @(posedge clk);
+        bg_wr_en   <= 1'b1;
+        bg_wr_we   <= 1'b1;
+        bg_wr_addr <= addr;
+        bg_wr_data <= data;
+
+        @(posedge clk);
+        bg_wr_en   <= 1'b0;
+        bg_wr_we   <= 1'b0;
+        bg_wr_addr <= 10'd0;
+        bg_wr_data <= 32'd0;
+    end
+    endtask
+
+    task automatic write_klin_a(input [9:0] addr, input [31:0] data);
+    begin
+        @(posedge clk);
+        klin_a_wr_en   <= 1'b1;
+        klin_a_wr_we   <= 1'b1;
+        klin_a_wr_addr <= addr;
+        klin_a_wr_data <= data;
+
+        @(posedge clk);
+        klin_a_wr_en   <= 1'b0;
+        klin_a_wr_we   <= 1'b0;
+        klin_a_wr_addr <= 10'd0;
+        klin_a_wr_data <= 32'd0;
+    end
+    endtask
+
+    task automatic write_klin_b(input [9:0] addr, input [31:0] data);
+    begin
+        @(posedge clk);
+        klin_b_wr_en   <= 1'b1;
+        klin_b_wr_we   <= 1'b1;
+        klin_b_wr_addr <= addr;
+        klin_b_wr_data <= data;
+
+        @(posedge clk);
+        klin_b_wr_en   <= 1'b0;
+        klin_b_wr_we   <= 1'b0;
+        klin_b_wr_addr <= 10'd0;
+        klin_b_wr_data <= 32'd0;
+    end
+    endtask
+
+    task automatic write_klin_c(input [9:0] addr, input [31:0] data);
+    begin
+        @(posedge clk);
+        klin_c_wr_en   <= 1'b1;
+        klin_c_wr_we   <= 1'b1;
+        klin_c_wr_addr <= addr;
+        klin_c_wr_data <= data;
+
+        @(posedge clk);
+        klin_c_wr_en   <= 1'b0;
+        klin_c_wr_we   <= 1'b0;
+        klin_c_wr_addr <= 10'd0;
+        klin_c_wr_data <= 32'd0;
+    end
+    endtask
+
+    task automatic write_klin_d(input [9:0] addr, input [31:0] data);
+    begin
+        @(posedge clk);
+        klin_d_wr_en   <= 1'b1;
+        klin_d_wr_we   <= 1'b1;
+        klin_d_wr_addr <= addr;
+        klin_d_wr_data <= data;
+
+        @(posedge clk);
+        klin_d_wr_en   <= 1'b0;
+        klin_d_wr_we   <= 1'b0;
+        klin_d_wr_addr <= 10'd0;
+        klin_d_wr_data <= 32'd0;
+    end
+    endtask
+
+    task automatic write_klin_e(input [9:0] addr, input [31:0] data);
+    begin
+        @(posedge clk);
+        klin_e_wr_en   <= 1'b1;
+        klin_e_wr_we   <= 1'b1;
+        klin_e_wr_addr <= addr;
+        klin_e_wr_data <= data;
+
+        @(posedge clk);
+        klin_e_wr_en   <= 1'b0;
+        klin_e_wr_we   <= 1'b0;
+        klin_e_wr_addr <= 10'd0;
+        klin_e_wr_data <= 32'd0;
     end
     endtask
 
@@ -279,10 +522,51 @@ module tb_dspcorestub;
     // Main test sequence
     // -------------------------------------------------------------------------
     initial begin
-        rst          = 1'b1;
-        in_valid     = 1'b0;
+        rst = 1'b1;
+        in_valid = 1'b0;
         in_row_start = 1'b0;
-        in_data      = 32'd0;
+        in_data = 32'd0;
+        runtime_valid = 8'h00;
+
+        bg_wr_en = 1'b0;
+        bg_wr_we = 1'b0;
+        bg_wr_addr = 10'd0;
+        bg_wr_data = 32'd0;
+
+        disp_a_wr_en = 1'b0;
+        disp_a_wr_we = 1'b0;
+        disp_a_wr_addr = 10'd0;
+        disp_a_wr_data = 32'd0;
+
+        disp_b_wr_en = 1'b0;
+        disp_b_wr_we = 1'b0;
+        disp_b_wr_addr = 10'd0;
+        disp_b_wr_data = 32'd0;
+
+        klin_a_wr_en = 1'b0;
+        klin_a_wr_we = 1'b0;
+        klin_a_wr_addr = 10'd0;
+        klin_a_wr_data = 32'd0;
+
+        klin_b_wr_en = 1'b0;
+        klin_b_wr_we = 1'b0;
+        klin_b_wr_addr = 10'd0;
+        klin_b_wr_data = 32'd0;
+
+        klin_c_wr_en = 1'b0;
+        klin_c_wr_we = 1'b0;
+        klin_c_wr_addr = 10'd0;
+        klin_c_wr_data = 32'd0;
+
+        klin_d_wr_en = 1'b0;
+        klin_d_wr_we = 1'b0;
+        klin_d_wr_addr = 10'd0;
+        klin_d_wr_data = 32'd0;
+
+        klin_e_wr_en = 1'b0;
+        klin_e_wr_we = 1'b0;
+        klin_e_wr_addr = 10'd0;
+        klin_e_wr_data = 32'd0;
 
         wait_clk(3);
         reset_dut();
@@ -335,10 +619,42 @@ module tb_dspcorestub;
         check(busy == 1'b0, "busy low after test3");
 
         // ---------------------------------------------------------------------
-        // TEST 4: idle stability
+        // TEST 4: calibration write connectivity
         // ---------------------------------------------------------------------
         $display("==================================================");
-        $display("TEST 4: idle stability");
+        $display("TEST 4: calibration write bus connectivity");
+        $display("==================================================");
+
+        runtime_valid <= 8'hA9;
+        wait_clk(1);
+
+        write_bg    (10'd0,   32'h1234_5678);
+        write_bg    (10'd511, 32'h89AB_CDEF);
+
+        write_klin_a(10'd7,   32'h0000_03A5);
+        write_klin_b(10'd9,   32'h0002_BEEF);
+        write_klin_c(10'd11,  32'h0001_2345);
+        write_klin_d(10'd13,  32'h0003_2101);
+        write_klin_e(10'd15,  32'h0000_FACE);
+
+        wait_clk(2);
+
+        check(dut.bg_shadow[0]   === 32'h1234_5678, "BG shadow write at addr 0");
+        check(dut.bg_shadow[511] === 32'h89AB_CDEF, "BG shadow write at addr 511");
+
+        check(dut.klin_a_shadow[7]  === 10'h3A5,    "KLIN_A shadow truncates to [9:0]");
+        check(dut.klin_b_shadow[9]  === 18'h2_BEEF, "KLIN_B shadow truncates to [17:0]");
+        check(dut.klin_c_shadow[11] === 18'h1_2345, "KLIN_C shadow truncates to [17:0]");
+        check(dut.klin_d_shadow[13] === 18'h3_2101, "KLIN_D shadow truncates to [17:0]");
+        check(dut.klin_e_shadow[15] === 18'h0_FACE, "KLIN_E shadow truncates to [17:0]");
+
+        check(busy == 1'b0, "calibration writes do not disturb idle DSP shell");
+
+        // ---------------------------------------------------------------------
+        // TEST 5: idle stability
+        // ---------------------------------------------------------------------
+        $display("==================================================");
+        $display("TEST 5: idle stability");
         $display("==================================================");
 
         repeat (50) drive_idle_cycle();

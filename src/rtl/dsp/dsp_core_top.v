@@ -2,25 +2,20 @@
 // =============================================================================
 // dsp_core_top
 //
-// Deterministic row-buffered DSP stub.
+// Deterministic row-buffered DSP stub with calibration-memory integration shell.
 //
-// Current placeholder behavior:
+// Current placeholder DSP behavior:
 // - Accept exactly 1024 real samples for one row
 // - Emit exactly the first 512 samples unchanged
 //
-// Input contract:
-// - in_row_start must be asserted together with the first valid sample of a row
-// - inputs for a row may be contiguous or may contain gaps in in_valid
-// - do not start a new row while this block is still busy with the previous row
-//
-// Output behavior:
-// - out_valid asserted for each emitted sample
-// - out_row_start asserted together with the first output sample of a row
-// - row_done asserted together with the final output sample of a row
+// Calibration integration behavior:
+// - Receives runtime_valid and BRAM write buses from udp_processing_top
+// - Writes BG + k-lin memories through their Port A interfaces
+// - Disp-comp write buses are accepted for interface completeness but ignored
+//   for now, per current development phase
 //
 // Purpose:
-// - maximally predictable integration stub
-// - easy to verify row assembly, packetization, and transmission edges
+// - stable integration shell before real DSP stage wiring
 // =============================================================================
 
 module dsp_core_top #(
@@ -30,17 +25,71 @@ module dsp_core_top #(
     input  wire        clk,
     input  wire        rst,
 
-    // ---- Input stream ----
+    // -------------------------------------------------------------------------
+    // DSP input stream
+    // -------------------------------------------------------------------------
     input  wire        in_valid,
     input  wire        in_row_start,
     input  wire [31:0] in_data,
 
-    // ---- Output stream ----
+    // -------------------------------------------------------------------------
+    // Calibration status / validity from udp_processing_top
+    // -------------------------------------------------------------------------
+    input  wire [7:0]  runtime_valid,
+
+    // -------------------------------------------------------------------------
+    // Calibration BRAM write buses from udp_processing_top / cal_loader
+    // -------------------------------------------------------------------------
+    input  wire        bg_wr_en,
+    input  wire [0:0]  bg_wr_we,
+    input  wire [9:0]  bg_wr_addr,
+    input  wire [31:0] bg_wr_data,
+
+    input  wire        disp_a_wr_en,
+    input  wire [0:0]  disp_a_wr_we,
+    input  wire [9:0]  disp_a_wr_addr,
+    input  wire [31:0] disp_a_wr_data,
+
+    input  wire        disp_b_wr_en,
+    input  wire [0:0]  disp_b_wr_we,
+    input  wire [9:0]  disp_b_wr_addr,
+    input  wire [31:0] disp_b_wr_data,
+
+    input  wire        klin_a_wr_en,
+    input  wire [0:0]  klin_a_wr_we,
+    input  wire [9:0]  klin_a_wr_addr,
+    input  wire [31:0] klin_a_wr_data,
+
+    input  wire        klin_b_wr_en,
+    input  wire [0:0]  klin_b_wr_we,
+    input  wire [9:0]  klin_b_wr_addr,
+    input  wire [31:0] klin_b_wr_data,
+
+    input  wire        klin_c_wr_en,
+    input  wire [0:0]  klin_c_wr_we,
+    input  wire [9:0]  klin_c_wr_addr,
+    input  wire [31:0] klin_c_wr_data,
+
+    input  wire        klin_d_wr_en,
+    input  wire [0:0]  klin_d_wr_we,
+    input  wire [9:0]  klin_d_wr_addr,
+    input  wire [31:0] klin_d_wr_data,
+
+    input  wire        klin_e_wr_en,
+    input  wire [0:0]  klin_e_wr_we,
+    input  wire [9:0]  klin_e_wr_addr,
+    input  wire [31:0] klin_e_wr_data,
+
+    // -------------------------------------------------------------------------
+    // DSP output stream
+    // -------------------------------------------------------------------------
     output reg         out_valid,
     output reg         out_row_start,
     output reg  [31:0] out_data,
 
-    // ---- Optional status ----
+    // -------------------------------------------------------------------------
+    // Status
+    // -------------------------------------------------------------------------
     output wire        busy,
     output reg         row_done
 );
@@ -60,6 +109,146 @@ module dsp_core_top #(
     reg busy_r;
     assign busy = busy_r;
 
+    // -------------------------------------------------------------------------
+    // Internal read-side tie-offs for calibration memories
+    // Real DSP stages will later consume Port B.
+    // -------------------------------------------------------------------------
+    wire        bg_rd_en_i      = 1'b0;
+    wire [9:0]  bg_rd_addr_i    = 10'd0;
+    wire [31:0] bg_rd_data_i;
+
+    wire        klin_a_rd_en_i  = 1'b0;
+    wire [9:0]  klin_a_rd_addr_i= 10'd0;
+    wire [9:0]  klin_a_rd_data_i;
+
+    wire        klin_b_rd_en_i  = 1'b0;
+    wire [9:0]  klin_b_rd_addr_i= 10'd0;
+    wire [17:0] klin_b_rd_data_i;
+
+    wire        klin_c_rd_en_i  = 1'b0;
+    wire [9:0]  klin_c_rd_addr_i= 10'd0;
+    wire [17:0] klin_c_rd_data_i;
+
+    wire        klin_d_rd_en_i  = 1'b0;
+    wire [9:0]  klin_d_rd_addr_i= 10'd0;
+    wire [17:0] klin_d_rd_data_i;
+
+    wire        klin_e_rd_en_i  = 1'b0;
+    wire [9:0]  klin_e_rd_addr_i= 10'd0;
+    wire [17:0] klin_e_rd_data_i;
+
+    // -------------------------------------------------------------------------
+    // Calibration memories
+    // -------------------------------------------------------------------------
+    bgsub_blk_mem_gen u_bg (
+        .clka  (clk),
+        .ena   (bg_wr_en),
+        .wea   (bg_wr_we),
+        .addra (bg_wr_addr),
+        .dina  (bg_wr_data),
+        .clkb  (clk),
+        .enb   (bg_rd_en_i),
+        .addrb (bg_rd_addr_i),
+        .doutb (bg_rd_data_i)
+    );
+
+    klin_base_rom u_klin_a (
+        .clka  (clk),
+        .ena   (klin_a_wr_en),
+        .wea   (klin_a_wr_we),
+        .addra (klin_a_wr_addr),
+        .dina  (klin_a_wr_data[9:0]),
+        .clkb  (clk),
+        .enb   (klin_a_rd_en_i),
+        .addrb (klin_a_rd_addr_i),
+        .doutb (klin_a_rd_data_i)
+    );
+
+    klin_c0_rom u_klin_b (
+        .clka  (clk),
+        .ena   (klin_b_wr_en),
+        .wea   (klin_b_wr_we),
+        .addra (klin_b_wr_addr),
+        .dina  (klin_b_wr_data[17:0]),
+        .clkb  (clk),
+        .enb   (klin_b_rd_en_i),
+        .addrb (klin_b_rd_addr_i),
+        .doutb (klin_b_rd_data_i)
+    );
+
+    klin_c1_rom u_klin_c (
+        .clka  (clk),
+        .ena   (klin_c_wr_en),
+        .wea   (klin_c_wr_we),
+        .addra (klin_c_wr_addr),
+        .dina  (klin_c_wr_data[17:0]),
+        .clkb  (clk),
+        .enb   (klin_c_rd_en_i),
+        .addrb (klin_c_rd_addr_i),
+        .doutb (klin_c_rd_data_i)
+    );
+
+    klin_c2_rom u_klin_d (
+        .clka  (clk),
+        .ena   (klin_d_wr_en),
+        .wea   (klin_d_wr_we),
+        .addra (klin_d_wr_addr),
+        .dina  (klin_d_wr_data[17:0]),
+        .clkb  (clk),
+        .enb   (klin_d_rd_en_i),
+        .addrb (klin_d_rd_addr_i),
+        .doutb (klin_d_rd_data_i)
+    );
+
+    klin_c3_rom u_klin_e (
+        .clka  (clk),
+        .ena   (klin_e_wr_en),
+        .wea   (klin_e_wr_we),
+        .addra (klin_e_wr_addr),
+        .dina  (klin_e_wr_data[17:0]),
+        .clkb  (clk),
+        .enb   (klin_e_rd_en_i),
+        .addrb (klin_e_rd_addr_i),
+        .doutb (klin_e_rd_data_i)
+    );
+
+`ifndef SYNTHESIS
+    // -------------------------------------------------------------------------
+    // Simulation-only shadow memories for easy TB checking of calibration writes
+    // -------------------------------------------------------------------------
+    reg [31:0] bg_shadow     [0:1023];
+    reg [9:0]  klin_a_shadow [0:1023];
+    reg [17:0] klin_b_shadow [0:1023];
+    reg [17:0] klin_c_shadow [0:1023];
+    reg [17:0] klin_d_shadow [0:1023];
+    reg [17:0] klin_e_shadow [0:1023];
+
+    integer si;
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            for (si = 0; si < 1024; si = si + 1) begin
+                bg_shadow[si]     <= 32'd0;
+                klin_a_shadow[si] <= 10'd0;
+                klin_b_shadow[si] <= 18'd0;
+                klin_c_shadow[si] <= 18'd0;
+                klin_d_shadow[si] <= 18'd0;
+                klin_e_shadow[si] <= 18'd0;
+            end
+        end else begin
+            if (bg_wr_en     && bg_wr_we[0])     bg_shadow[bg_wr_addr]         <= bg_wr_data;
+            if (klin_a_wr_en && klin_a_wr_we[0]) klin_a_shadow[klin_a_wr_addr] <= klin_a_wr_data[9:0];
+            if (klin_b_wr_en && klin_b_wr_we[0]) klin_b_shadow[klin_b_wr_addr] <= klin_b_wr_data[17:0];
+            if (klin_c_wr_en && klin_c_wr_we[0]) klin_c_shadow[klin_c_wr_addr] <= klin_c_wr_data[17:0];
+            if (klin_d_wr_en && klin_d_wr_we[0]) klin_d_shadow[klin_d_wr_addr] <= klin_d_wr_data[17:0];
+            if (klin_e_wr_en && klin_e_wr_we[0]) klin_e_shadow[klin_e_wr_addr] <= klin_e_wr_data[17:0];
+        end
+    end
+`endif
+
+    // -------------------------------------------------------------------------
+    // Current DSP shell
+    // runtime_valid is intentionally not used yet; later stages will consult it.
+    // -------------------------------------------------------------------------
     integer i;
     always @(posedge clk or posedge rst) begin
         if (rst) begin
@@ -76,16 +265,11 @@ module dsp_core_top #(
                 row_mem[i] <= 32'd0;
 
         end else begin
-            // default pulse outputs
             out_valid     <= 1'b0;
             out_row_start <= 1'b0;
             row_done      <= 1'b0;
 
             case (state)
-
-                // -------------------------------------------------------------
-                // Wait for first sample of a row
-                // -------------------------------------------------------------
                 ST_IDLE: begin
                     in_count  <= 10'd0;
                     out_count <= 9'd0;
@@ -99,9 +283,6 @@ module dsp_core_top #(
                     end
                 end
 
-                // -------------------------------------------------------------
-                // Collect full 1024-sample row
-                // -------------------------------------------------------------
                 ST_FILL: begin
                     busy_r <= 1'b1;
 
@@ -117,9 +298,6 @@ module dsp_core_top #(
                     end
                 end
 
-                // -------------------------------------------------------------
-                // Emit first 512 samples unchanged
-                // -------------------------------------------------------------
                 ST_OUT: begin
                     busy_r        <= 1'b1;
                     out_valid     <= 1'b1;

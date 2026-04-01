@@ -2,7 +2,7 @@
 `timescale 1ns / 1ps
 
 module calibration_loader #(
-    parameter integer WATCHDOG_CYCLES = 1024
+    parameter integer WATCHDOG_CYCLES = 1029
 )(
     input  wire        clk,
     input  wire        rst,
