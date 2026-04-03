@@ -1,3 +1,4 @@
+
 `timescale 1ns/1ps
 
 module tb_udp_processing_top;
@@ -13,10 +14,9 @@ module tb_udp_processing_top;
     localparam int BYTES_PER_PACKET    = 1028;
     localparam int TOTAL_TX_BYTES      = TX_PACKETS_PER_ROW * BYTES_PER_PACKET;
 
-    // RX parser expects 0xFF01
-    localparam logic [15:0] RX_HDR_TAG = 16'hFF01;
-    // TX packetizer emits 0xFF03
-    localparam logic [15:0] TX_HDR_TAG = 16'hFF03;
+    localparam logic [15:0] RX_HDR_TAG  = 16'hFF01;
+    localparam logic [15:0] CAL_HDR_TAG = 16'hFF02;
+    localparam logic [15:0] TX_HDR_TAG  = 16'hFF03;
 
     // =========================================================================
     // Clock / reset
@@ -58,6 +58,56 @@ module tb_udp_processing_top;
     logic        dsp_out_valid;
     logic [31:0] dsp_out_data;
 
+    logic        allow_cal;
+    logic        dsp_busy;
+
+    logic        cal_loading;
+    logic        cal_done_pulse;
+    logic        cal_error;
+    logic        cal_rejected_busy;
+    logic        cal_rejected_mode;
+    logic [7:0]  runtime_valid;
+
+    logic        bg_wr_en;
+    logic [0:0]  bg_wr_we;
+    logic [9:0]  bg_wr_addr;
+    logic [31:0] bg_wr_data;
+
+    logic        disp_a_wr_en;
+    logic [0:0]  disp_a_wr_we;
+    logic [9:0]  disp_a_wr_addr;
+    logic [31:0] disp_a_wr_data;
+
+    logic        disp_b_wr_en;
+    logic [0:0]  disp_b_wr_we;
+    logic [9:0]  disp_b_wr_addr;
+    logic [31:0] disp_b_wr_data;
+
+    logic        klin_a_wr_en;
+    logic [0:0]  klin_a_wr_we;
+    logic [9:0]  klin_a_wr_addr;
+    logic [31:0] klin_a_wr_data;
+
+    logic        klin_b_wr_en;
+    logic [0:0]  klin_b_wr_we;
+    logic [9:0]  klin_b_wr_addr;
+    logic [31:0] klin_b_wr_data;
+
+    logic        klin_c_wr_en;
+    logic [0:0]  klin_c_wr_we;
+    logic [9:0]  klin_c_wr_addr;
+    logic [31:0] klin_c_wr_data;
+
+    logic        klin_d_wr_en;
+    logic [0:0]  klin_d_wr_we;
+    logic [9:0]  klin_d_wr_addr;
+    logic [31:0] klin_d_wr_data;
+
+    logic        klin_e_wr_en;
+    logic [0:0]  klin_e_wr_we;
+    logic [9:0]  klin_e_wr_addr;
+    logic [31:0] klin_e_wr_data;
+
     udp_processing_top dut (
         .clk(clk),
         .rst(rst),
@@ -90,15 +140,96 @@ module tb_udp_processing_top;
         .dsp_in_data(dsp_in_data),
 
         .dsp_out_valid(dsp_out_valid),
-        .dsp_out_data(dsp_out_data)
+        .dsp_out_data(dsp_out_data),
+
+        .allow_cal(allow_cal),
+        .dsp_busy(dsp_busy),
+
+        .cal_loading(cal_loading),
+        .cal_done_pulse(cal_done_pulse),
+        .cal_error(cal_error),
+        .cal_rejected_busy(cal_rejected_busy),
+        .cal_rejected_mode(cal_rejected_mode),
+        .runtime_valid(runtime_valid),
+
+        .bg_wr_en(bg_wr_en),
+        .bg_wr_we(bg_wr_we),
+        .bg_wr_addr(bg_wr_addr),
+        .bg_wr_data(bg_wr_data),
+
+        .disp_a_wr_en(disp_a_wr_en),
+        .disp_a_wr_we(disp_a_wr_we),
+        .disp_a_wr_addr(disp_a_wr_addr),
+        .disp_a_wr_data(disp_a_wr_data),
+
+        .disp_b_wr_en(disp_b_wr_en),
+        .disp_b_wr_we(disp_b_wr_we),
+        .disp_b_wr_addr(disp_b_wr_addr),
+        .disp_b_wr_data(disp_b_wr_data),
+
+        .klin_a_wr_en(klin_a_wr_en),
+        .klin_a_wr_we(klin_a_wr_we),
+        .klin_a_wr_addr(klin_a_wr_addr),
+        .klin_a_wr_data(klin_a_wr_data),
+
+        .klin_b_wr_en(klin_b_wr_en),
+        .klin_b_wr_we(klin_b_wr_we),
+        .klin_b_wr_addr(klin_b_wr_addr),
+        .klin_b_wr_data(klin_b_wr_data),
+
+        .klin_c_wr_en(klin_c_wr_en),
+        .klin_c_wr_we(klin_c_wr_we),
+        .klin_c_wr_addr(klin_c_wr_addr),
+        .klin_c_wr_data(klin_c_wr_data),
+
+        .klin_d_wr_en(klin_d_wr_en),
+        .klin_d_wr_we(klin_d_wr_we),
+        .klin_d_wr_addr(klin_d_wr_addr),
+        .klin_d_wr_data(klin_d_wr_data),
+
+        .klin_e_wr_en(klin_e_wr_en),
+        .klin_e_wr_we(klin_e_wr_we),
+        .klin_e_wr_addr(klin_e_wr_addr),
+        .klin_e_wr_data(klin_e_wr_data)
+    );
+
+    // =========================================================================
+    // External memories to emulate dsp_core ownership
+    // =========================================================================
+    logic        bg_rd_en;
+    logic [9:0]  bg_rd_addr;
+    logic [31:0] bg_rd_data;
+
+    logic        klin_a_rd_en;
+    logic [9:0]  klin_a_rd_addr;
+    logic [9:0]  klin_a_rd_data_rb;
+
+    bgsub_blk_mem_gen u_bg (
+        .clka(clk),
+        .ena(bg_wr_en),
+        .wea(bg_wr_we),
+        .addra(bg_wr_addr),
+        .dina(bg_wr_data),
+        .clkb(clk),
+        .enb(bg_rd_en),
+        .addrb(bg_rd_addr),
+        .doutb(bg_rd_data)
+    );
+
+    klin_base_rom u_klin_a (
+        .clka(clk),
+        .ena(klin_a_wr_en),
+        .wea(klin_a_wr_we),
+        .addra(klin_a_wr_addr),
+        .dina(klin_a_wr_data[9:0]),
+        .clkb(clk),
+        .enb(klin_a_rd_en),
+        .addrb(klin_a_rd_addr),
+        .doutb(klin_a_rd_data_rb)
     );
 
     // =========================================================================
     // Simple DSP model
-    // - Accepts 1024 input samples
-    // - Produces only first 512 outputs
-    // - Fixed latency 2
-    // - Transform: out = in + 1
     // =========================================================================
     int dsp_in_count_model;
     logic [31:0] pipe_d0, pipe_d1;
@@ -125,6 +256,28 @@ module tb_udp_processing_top;
 
             dsp_out_valid <= pipe_v1;
             dsp_out_data  <= pipe_d1;
+        end
+    end
+
+    // =========================================================================
+    // Pulse capture
+    // =========================================================================
+    logic clear_latches;
+    logic saw_done;
+    logic saw_error;
+
+    always_ff @(posedge clk or posedge rst) begin
+        if (rst) begin
+            saw_done  <= 1'b0;
+            saw_error <= 1'b0;
+        end else if (clear_latches) begin
+            saw_done  <= 1'b0;
+            saw_error <= 1'b0;
+        end else begin
+            if (cal_done_pulse)
+                saw_done <= 1'b1;
+            if (cal_error)
+                saw_error <= 1'b1;
         end
     end
 
@@ -156,6 +309,15 @@ module tb_udp_processing_top;
     end
     endtask
 
+    task automatic reset_latches;
+    begin
+        @(negedge clk);
+        clear_latches = 1'b1;
+        @(negedge clk);
+        clear_latches = 1'b0;
+    end
+    endtask
+
     // =========================================================================
     // Observability counters
     // =========================================================================
@@ -170,6 +332,9 @@ module tb_udp_processing_top;
     int tx_byte_count;
     int tx_tlast_count;
 
+    int bg_write_count;
+    int klin_a_write_count;
+
     always @(posedge clk) begin
         if (rst) begin
             cycle_count         <= 0;
@@ -180,10 +345,13 @@ module tb_udp_processing_top;
             tx_hdr_count        <= 0;
             tx_byte_count       <= 0;
             tx_tlast_count      <= 0;
+            bg_write_count      <= 0;
+            klin_a_write_count  <= 0;
         end else begin
             cycle_count <= cycle_count + 1;
 
-            if (dut.sample_valid_w && dut.sample_last_w)
+            // Data-path observability
+            if (dut.data_sample_valid_w && dut.data_sample_last_w)
                 parser_batch_count <= parser_batch_count + 1;
 
             if (dut.replay_active && (dut.replay_idx == 0))
@@ -203,6 +371,13 @@ module tb_udp_processing_top;
                 if (udp_tx_tlast)
                     tx_tlast_count <= tx_tlast_count + 1;
             end
+
+            // Calibration-path observability
+            if (bg_wr_en && bg_wr_we[0])
+                bg_write_count <= bg_write_count + 1;
+
+            if (klin_a_wr_en && klin_a_wr_we[0])
+                klin_a_write_count <= klin_a_write_count + 1;
         end
     end
 
@@ -216,6 +391,8 @@ module tb_udp_processing_top;
         tx_byte_count       = 0;
         tx_tlast_count      = 0;
         dsp_in_count_model  = 0;
+        bg_write_count      = 0;
+        klin_a_write_count  = 0;
     end
     endtask
 
@@ -336,6 +513,13 @@ module tb_udp_processing_top;
         expected_rx_header_word = {RX_HDR_TAG, batch_id, 4'b0000, row_id};
     endfunction
 
+    function automatic logic [31:0] expected_cal_header_word(
+        input logic [9:0] rid,
+        input logic [1:0] bid
+    );
+        expected_cal_header_word = {CAL_HDR_TAG, bid, 4'b0000, rid};
+    endfunction
+
     function automatic logic [31:0] expected_tx_header_word(
         input logic [9:0] tx_row_id,
         input logic [1:0] batch_id
@@ -364,18 +548,6 @@ module tb_udp_processing_top;
 
         hdr_word     = bytes_to_u32_le(tx_pkts[pkt_idx][0], tx_pkts[pkt_idx][1], tx_pkts[pkt_idx][2], tx_pkts[pkt_idx][3]);
         exp_hdr_word = expected_tx_header_word(exp_tx_row_id, pkt_idx[1:0]);
-
-        if (hdr_word !== exp_hdr_word) begin
-            $display("HDR DBG: pkt=%0d exp_tx_row=%0d batch=%0d", pkt_idx, exp_tx_row_id, pkt_idx);
-            $display("HDR DBG: raw bytes [0..3] = %02h %02h %02h %02h",
-                     tx_pkts[pkt_idx][0], tx_pkts[pkt_idx][1], tx_pkts[pkt_idx][2], tx_pkts[pkt_idx][3]);
-            $display("HDR DBG: got hdr_word      = 0x%08h", hdr_word);
-            $display("HDR DBG: expected hdr_word = 0x%08h", exp_hdr_word);
-            $display("HDR DBG: got fields top16=0x%04h batch=%0d row=%0d",
-                     hdr_word[31:16], hdr_word[15:14], hdr_word[9:0]);
-            $display("HDR DBG: exp fields top16=0x%04h batch=%0d row=%0d",
-                     exp_hdr_word[31:16], exp_hdr_word[15:14], exp_hdr_word[9:0]);
-        end
 
         expect_local(hdr_word == exp_hdr_word,
                      $sformatf("packet %0d app header matches tx_row=%0d batch=%0d",
@@ -453,9 +625,6 @@ module tb_udp_processing_top;
     end
     endtask
 
-    // =========================================================================
-    // RX helpers
-    // =========================================================================
     task automatic idle_rx(input int cycles);
         int i;
     begin
@@ -521,9 +690,6 @@ module tb_udp_processing_top;
 
         hdr = expected_rx_header_word(row_id, batch_id);
 
-        $display("RX HDR DBG: row=%0d batch=%0d hdr=0x%08h bytes=%02h %02h %02h %02h",
-                 row_id, batch_id, hdr, hdr[7:0], hdr[15:8], hdr[23:16], hdr[31:24]);
-
         send_udp_byte(hdr[7:0],   1'b0);
         send_udp_byte(hdr[15:8],  1'b0);
         send_udp_byte(hdr[23:16], 1'b0);
@@ -541,9 +707,50 @@ module tb_udp_processing_top;
     end
     endtask
 
-    // =========================================================================
-    // TX backpressure
-    // =========================================================================
+    task automatic send_cal_packet(
+        input logic [9:0]  rid,
+        input logic [1:0]  bid,
+        input logic [31:0] base,
+        input int          nsamp,
+        input logic [31:0] src_ip,
+        input logic [15:0] src_port
+    );
+        int i;
+        logic [31:0] hdr;
+        logic [31:0] d;
+    begin
+        send_udp_header(src_ip, src_port, APP_UDP_PORT);
+
+        hdr = expected_cal_header_word(rid, bid);
+
+        send_udp_byte(hdr[7:0],   1'b0);
+        send_udp_byte(hdr[15:8],  1'b0);
+        send_udp_byte(hdr[23:16], 1'b0);
+        send_udp_byte(hdr[31:24], (nsamp == 0));
+
+        for (i = 0; i < nsamp; i++) begin
+            d = base + i;
+            send_udp_byte(d[7:0],   1'b0);
+            send_udp_byte(d[15:8],  1'b0);
+            send_udp_byte(d[23:16], 1'b0);
+            send_udp_byte(d[31:24], (i == (nsamp-1)));
+        end
+    end
+    endtask
+
+    task automatic send_full_cal(
+        input logic [9:0] rid,
+        input logic [31:0] base
+    );
+        int b;
+    begin
+        for (b = 0; b < 4; b++) begin
+            send_cal_packet(rid, b[1:0], base + (b * 32'h1000), 256, 32'hC0A80101, 16'd6000);
+            idle_rx(2);
+        end
+    end
+    endtask
+
     task automatic run_tx_ready_always_on;
     begin
         udp_tx_hdr_ready = 1'b1;
@@ -564,12 +771,38 @@ module tb_udp_processing_top;
     end
     endtask
 
-    // =========================================================================
-    // Reset
-    // =========================================================================
+    task automatic read_bg_addr(input [9:0] addr, output logic [31:0] data);
+    begin
+        @(negedge clk);
+        bg_rd_en   = 1'b1;
+        bg_rd_addr = addr;
+        @(posedge clk);
+        @(posedge clk);
+        @(negedge clk);
+        data = bg_rd_data;
+        bg_rd_en   = 1'b0;
+        bg_rd_addr = '0;
+    end
+    endtask
+
+    task automatic read_klin_a_addr(input [9:0] addr, output logic [9:0] data);
+    begin
+        @(negedge clk);
+        klin_a_rd_en   = 1'b1;
+        klin_a_rd_addr = addr;
+        @(posedge clk);
+        @(posedge clk);
+        @(negedge clk);
+        data = klin_a_rd_data_rb;
+        klin_a_rd_en   = 1'b0;
+        klin_a_rd_addr = '0;
+    end
+    endtask
+
     task automatic reset_dut;
     begin
         rst <= 1'b1;
+        clear_latches <= 1'b0;
         udp_rx_hdr_valid <= 1'b0;
         udp_rx_src_ip    <= '0;
         udp_rx_src_port  <= '0;
@@ -579,6 +812,12 @@ module tb_udp_processing_top;
         udp_rx_tlast     <= 1'b0;
         udp_tx_hdr_ready <= 1'b1;
         udp_tx_tready    <= 1'b1;
+        allow_cal        <= 1'b1;
+        dsp_busy         <= 1'b0;
+        bg_rd_en         <= 1'b0;
+        bg_rd_addr       <= 10'd0;
+        klin_a_rd_en     <= 1'b0;
+        klin_a_rd_addr   <= 10'd0;
 
         repeat (8) @(posedge clk);
         clear_counts();
@@ -589,7 +828,7 @@ module tb_udp_processing_top;
     endtask
 
     // =========================================================================
-    // Tests
+    // Data-path tests
     // =========================================================================
     task automatic test_wrong_port_ignored;
     begin
@@ -629,12 +868,11 @@ module tb_udp_processing_top;
         wait_for_tx_packets(2, 40000, ok);
         fatal_if_fail(ok, "received all 2 TX packets");
 
-        expect_local(parser_batch_count == 4, "parser completed 4 batches");
+        expect_local(parser_batch_count == 4, "parser completed 4 data batches");
         expect_local(replay_start_count == 4, "replay started 4 times");
         expect_local(dsp_row_start_count == 1, "DSP row started once");
         expect_local(dsp_in_count_obs == 1024, "DSP saw 1024 samples");
 
-        // internal TX row counter starts from 0 after reset
         check_row_tx(10'd0, 32'hC0A80A63, 16'd6000);
     end
     endtask
@@ -666,7 +904,6 @@ module tb_udp_processing_top;
         wait_for_tx_packets(2, 50000, ok);
         fatal_if_fail(ok, "received 2 packets under backpressure");
 
-        // internal TX row counter starts from 0 after reset
         check_row_tx(10'd0, 32'hC0A80A63, 16'd6001);
     end
     endtask
@@ -687,14 +924,202 @@ module tb_udp_processing_top;
         idle_rx(2);
         send_app_packet(10'd11, 2'd2, 32'hC0A80A11, 16'd6010, 16'd5001);
         idle_rx(2);
-
         send_app_packet(10'd11, 2'd3, 32'hC0A80A22, 16'd6022, 16'd5001);
 
         wait_for_tx_packets(2, 40000, ok);
         fatal_if_fail(ok, "received both TX packets for row 11");
 
-        // internal TX row counter starts from 0 after reset
         check_row_tx(10'd0, 32'hC0A80A22, 16'd6022);
+    end
+    endtask
+
+    // =========================================================================
+    // Calibration integration tests
+    // =========================================================================
+    task automatic test_valid_bg_calibration;
+        logic [31:0] bg_got;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST5: valid BG calibration through udp_processing_top");
+        $display("--------------------------------------------------");
+
+        reset_dut();
+        reset_latches();
+
+        send_full_cal(10'd0, 32'h0001_0000);
+        idle_rx(20);
+
+        expect_local(runtime_valid[0] == 1'b1, "BG runtime_valid set");
+        expect_local(saw_done == 1'b1, "BG done pulse seen");
+        expect_local(bg_write_count == 1024, "BG forwarded 1024 writes");
+        expect_local(dsp_in_count_obs == 0, "Calibration traffic did not enter DSP data path");
+
+        read_bg_addr(10'd0, bg_got);
+        expect_local(bg_got == 32'h0001_0000, "BG[0] correct");
+
+        read_bg_addr(10'd1023, bg_got);
+        expect_local(bg_got == 32'h0001_30FF, "BG[1023] correct");
+    end
+    endtask
+
+    // =========================================================================
+    // Sticky debug capture for malformed-cal diagnosis
+    // =========================================================================
+    logic saw_hdr_valid_cal;
+    logic saw_hdr_error;
+    logic saw_pkt_is_cal_pulse;
+    logic saw_sample_valid_any;
+    logic saw_sample_last_any;
+    logic saw_batch_valid_any;
+    logic saw_cal_loading_any;
+    logic saw_bg_write_any;
+
+    always_ff @(posedge clk or posedge rst) begin
+        if (rst) begin
+            saw_hdr_valid_cal   <= 1'b0;
+            saw_hdr_error       <= 1'b0;
+            saw_pkt_is_cal_pulse<= 1'b0;
+            saw_sample_valid_any<= 1'b0;
+            saw_sample_last_any <= 1'b0;
+            saw_batch_valid_any <= 1'b0;
+            saw_cal_loading_any <= 1'b0;
+            saw_bg_write_any    <= 1'b0;
+        end else if (clear_latches) begin
+            saw_hdr_valid_cal   <= 1'b0;
+            saw_hdr_error       <= 1'b0;
+            saw_pkt_is_cal_pulse<= 1'b0;
+            saw_sample_valid_any<= 1'b0;
+            saw_sample_last_any <= 1'b0;
+            saw_batch_valid_any <= 1'b0;
+            saw_cal_loading_any <= 1'b0;
+            saw_bg_write_any    <= 1'b0;
+        end else begin
+            if (dut.hdr_valid_w && dut.pkt_is_cal_w)
+                saw_hdr_valid_cal <= 1'b1;
+
+            if (dut.pkt_is_cal_w)
+                saw_pkt_is_cal_pulse <= 1'b1;
+
+            if (dut.hdr_error_w)
+                saw_hdr_error <= 1'b1;
+
+            if (dut.sample_valid_w)
+                saw_sample_valid_any <= 1'b1;
+
+            if (dut.sample_last_w)
+                saw_sample_last_any <= 1'b1;
+
+            if (dut.batch_valid_w)
+                saw_batch_valid_any <= 1'b1;
+
+            if (cal_loading)
+                saw_cal_loading_any <= 1'b1;
+
+            if (bg_wr_en && bg_wr_we[0])
+                saw_bg_write_any <= 1'b1;
+        end
+    end
+
+
+    task automatic test_valid_klin_a_calibration;
+        logic [9:0] klin_a_got;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST6: valid KLIN_A calibration through udp_processing_top");
+        $display("--------------------------------------------------");
+
+        reset_dut();
+        reset_latches();
+
+        send_full_cal(10'd24, 32'h0030_0000);
+        idle_rx(20);
+
+        expect_local(runtime_valid[3] == 1'b1, "KLIN_A runtime_valid set");
+        expect_local(saw_done == 1'b1, "KLIN_A done pulse seen");
+        expect_local(klin_a_write_count == 1024, "KLIN_A forwarded 1024 writes");
+
+        read_klin_a_addr(10'd0, klin_a_got);
+        expect_local(klin_a_got == 10'h000, "KLIN_A[0] truncated LSBs correct");
+
+        read_klin_a_addr(10'd255, klin_a_got);
+        expect_local(klin_a_got == 10'h0FF, "KLIN_A[255] truncated LSBs correct");
+    end
+    endtask
+
+    task automatic test_malformed_bg_calibration;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST7: malformed BG packet diagnostic");
+        $display("--------------------------------------------------");
+
+        reset_dut();
+
+        // ------------------------------------------------------
+        // Prime a known-good BG calibration first
+        // ------------------------------------------------------
+        reset_latches();
+        send_full_cal(10'd0, 32'h0001_0000);
+        idle_rx(20);
+
+        expect_local(runtime_valid[0] == 1'b1, "Prime BG valid set");
+
+        // ------------------------------------------------------
+        // Malformed packet: valid CAL header, only 101 samples
+        // ------------------------------------------------------
+        reset_latches();
+        send_cal_packet(10'd0, 2'd0, 32'h0100_0000, 101, 32'hC0A80101, 16'd6000);
+        idle_rx(2049);
+
+        $display("DBG malformed-cal sticky results:");
+        $display("  saw_hdr_valid_cal    = %0b", saw_hdr_valid_cal);
+        $display("  saw_pkt_is_cal_pulse = %0b", saw_pkt_is_cal_pulse);
+        $display("  saw_hdr_error        = %0b", saw_hdr_error);
+        $display("  saw_sample_valid_any = %0b", saw_sample_valid_any);
+        $display("  saw_sample_last_any  = %0b", saw_sample_last_any);
+        $display("  saw_batch_valid_any  = %0b", saw_batch_valid_any);
+        $display("  saw_cal_loading_any  = %0b", saw_cal_loading_any);
+        $display("  saw_bg_write_any     = %0b", saw_bg_write_any);
+        $display("  runtime_valid        = 0x%02h", runtime_valid);
+        $display("  saw_error            = %0b", saw_error);
+        $display("  saw_done             = %0b", saw_done);
+        $display("  bg_write_count       = %0d", bg_write_count);
+
+        // ------------------------------------------------------
+        // Diagnostic expectations
+        // These tell you where the malformed packet stopped.
+        // ------------------------------------------------------
+        expect_local(saw_hdr_valid_cal == 1'b1,
+                     "Malformed packet header was recognized as calibration");
+
+        expect_local(saw_pkt_is_cal_pulse == 1'b1,
+                     "Malformed packet produced pkt_is_cal pulse");
+
+        // Optional: this may be 0 or 1 depending on parser behavior,
+        // but checking it explicitly tells you whether parser flags the short packet.
+        $display("NOTE: hdr_error behavior depends on parser design.");
+
+        // This is the crucial divider:
+        // If this is 0, the parser is suppressing payload emission.
+        // If this is 1 but batch_valid_any is 0, the parser forwarded samples
+        // but never produced a terminal batch event.
+        expect_local(saw_sample_valid_any == 1'b1,
+                     "Malformed packet forwarded some payload samples");
+
+        // This tells you whether the parser exposed packet termination at all.
+        $display("NOTE: sample_last and batch_valid determine whether cal_loader can react.");
+
+        // ------------------------------------------------------
+        // Final policy checks
+        // Keep these, but now they are interpreted in context.
+        // ------------------------------------------------------
+        expect_local(runtime_valid[0] == 1'b0,
+                     "Malformed BG clears runtime_valid[0]");
+
+        expect_local(saw_error == 1'b1,
+                     "Malformed BG raises cal_error pulse");
+
+        expect_local(saw_done == 1'b0,
+                     "Malformed BG does not raise done pulse");
     end
     endtask
 
@@ -711,11 +1136,21 @@ module tb_udp_processing_top;
         udp_rx_tlast     = 1'b0;
         udp_tx_hdr_ready = 1'b1;
         udp_tx_tready    = 1'b1;
+        allow_cal        = 1'b1;
+        dsp_busy         = 1'b0;
+        bg_rd_en         = 1'b0;
+        bg_rd_addr       = 10'd0;
+        klin_a_rd_en     = 1'b0;
+        klin_a_rd_addr   = 10'd0;
+        clear_latches    = 1'b0;
 
         test_wrong_port_ignored();
         test_one_row_exact_bytes();
         test_tx_backpressure_exact_bytes();
         test_route_update_same_row_new_sender();
+        test_valid_bg_calibration();
+        test_valid_klin_a_calibration();
+        test_malformed_bg_calibration();
 
         $display("==================================================");
         $display("TOTAL PASS = %0d", pass);
