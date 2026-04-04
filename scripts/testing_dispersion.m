@@ -1,8 +1,19 @@
 maxmin = [770e-9, 935e-9];
 a2range = [-1e-10, 1e-10];
-ascan = double(bscan(75, :));
+ascan = double(raw_signals(75, :));
 
-result = generate_dispersion_luts(ascan, maxmin, ...
+function output = bg_sub_f(input)
+    output = input - 43;
+end
+
+function output = k_lin_f(nonlinear_y, linear_x, nonlinear_x)
+    output = interp1(nonlinear_x, nonlinear_y, linear_x, 'cubic', 'extrap');
+end
+
+s1=bg_sub_f(ascan);
+s2=k_lin_f(s1, tvec, kclk);
+
+result = generate_dispersion_luts(s2, maxmin, ...
     'A2Range', a2range, ...
     'NumSteps', 301, ...
     'A3', 0, ...

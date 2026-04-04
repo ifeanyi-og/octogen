@@ -2,7 +2,8 @@
 %   x_raw  : reverse-engineered raw A-scan
 %   kclk   : assumed nonuniform sampled k-clock
 %   tables from gen_klin_tables_fpga
-x_raw=bscan(100, :);
+x_raw=raw_signals(100, :);
+x_raw=x_raw-43;
 [base, c0_q, c1_q, c2_q, c3_q, info] = gen_klin_tables_fpga(x_raw, kclk);
 
 % Convert quantized coeffs back to float for testing
