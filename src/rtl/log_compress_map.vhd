@@ -4,7 +4,7 @@ use IEEE.NUMERIC_STD.ALL;
 
 entity log_compress_map is
   generic (
-    IN_W             : natural := 32;
+    IN_W             : natural :=65;
 
     -- LUT structure
     SEG_BITS         : natural := 6;   -- 64 segments
