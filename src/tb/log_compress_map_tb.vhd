@@ -10,7 +10,7 @@ architecture tb of log_compress_map_tb is
   --------------------------------------------------------------------------
   -- DUT configuration
   --------------------------------------------------------------------------
-  constant IN_W             : natural := 32;
+  constant IN_W             : natural := 65;
   constant SEG_BITS         : natural := 6;
   constant FRAC_BITS        : natural := 6;
   constant LUT_W            : natural := 18;
