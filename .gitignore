@@ -26,6 +26,9 @@ src/bd/*/ip/*/synth/
 src/bd/*/ip/*/sim/
 src/bd/*.veo
 
+# random matlab scripts
+scripts/ignore/*
+
 # Only track the BD file itself
 !src/bd/*/*.bd
 

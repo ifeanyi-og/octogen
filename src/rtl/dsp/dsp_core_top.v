@@ -155,7 +155,7 @@ module dsp_core_top #(
         .start_of_ascan_out  (klin_out_start),
 
         // Assumption: runtime_valid[1] corresponds to k-lin calibration readiness
-        .cal_ready           (runtime_valid[1]),
+        .cal_ready           (1'b1),
         .cal_write_addr      (klin_a_wr_addr),
 
         .cal_base_write_en   (klin_a_wr_en & klin_a_wr_we[0]),
@@ -234,7 +234,7 @@ module dsp_core_top #(
     wire dbg_cfg_done;
     wire dbg_input_backpressure_violation;
 
-    fft_wrapper u_fft_wrapper (
+    fft_dummy u_fft_wrapper (
         .clk                             (clk),
         .rst                             (rst),
 
