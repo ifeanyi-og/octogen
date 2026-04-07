@@ -1,25 +1,4 @@
 `timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
-// 
-// Create Date: 04/06/2026 11:54:51 PM
-// Design Name: 
-// Module Name: dsp_latencycheck
-// Project Name: 
-// Target Devices: 
-// Tool Versions: 
-// Description: 
-// 
-// Dependencies: 
-// 
-// Revision:
-// Revision 0.01 - File Created
-// Additional Comments:
-// 
-//////////////////////////////////////////////////////////////////////////////////
-
-`timescale 1ns / 1ps
 
 module tb_dsp_core_cal_compare;
 
@@ -171,7 +150,7 @@ module tb_dsp_core_cal_compare;
 
     // -------------------------------------------------------------------------
     // Run selector
-    // 0 = no dump yet
+    // 0 = idle
     // 1 = pre-cal row
     // 2 = post-cal row
     // -------------------------------------------------------------------------
@@ -226,6 +205,72 @@ module tb_dsp_core_cal_compare;
     integer post_mag_count;
     integer post_final_count;
     integer post_rowdone_count;
+
+    // -------------------------------------------------------------------------
+    // Global cycle counter
+    // -------------------------------------------------------------------------
+    integer sim_cycle;
+
+    always @(posedge clk) begin
+        if (rst)
+            sim_cycle <= 0;
+        else
+            sim_cycle <= sim_cycle + 1;
+    end
+
+    // -------------------------------------------------------------------------
+    // Stage valid aliases
+    // -------------------------------------------------------------------------
+    wire stg_in_valid      = in_valid;
+    wire stg_bg_valid      = dut.bgsub_out_valid;
+    wire stg_klin_valid    = dut.klin_out_valid;
+    wire stg_disp_valid    = dut.disp_out_valid;
+    wire stg_fft_valid     = dut.fft_out_valid;
+    wire stg_topsel_valid  = dut.topsel_out_valid;
+    wire stg_mag_valid     = dut.mag_out_valid;
+    wire stg_final_valid   = out_valid;
+
+    // -------------------------------------------------------------------------
+    // First-valid cycle capture per run
+    // -------------------------------------------------------------------------
+    integer run1_in_first_cycle,     run2_in_first_cycle;
+    integer run1_bg_first_cycle,     run2_bg_first_cycle;
+    integer run1_klin_first_cycle,   run2_klin_first_cycle;
+    integer run1_disp_first_cycle,   run2_disp_first_cycle;
+    integer run1_fft_first_cycle,    run2_fft_first_cycle;
+    integer run1_topsel_first_cycle, run2_topsel_first_cycle;
+    integer run1_mag_first_cycle,    run2_mag_first_cycle;
+    integer run1_final_first_cycle,  run2_final_first_cycle;
+
+    reg run1_in_seen,     run2_in_seen;
+    reg run1_bg_seen,     run2_bg_seen;
+    reg run1_klin_seen,   run2_klin_seen;
+    reg run1_disp_seen,   run2_disp_seen;
+    reg run1_fft_seen,    run2_fft_seen;
+    reg run1_topsel_seen, run2_topsel_seen;
+    reg run1_mag_seen,    run2_mag_seen;
+    reg run1_final_seen,  run2_final_seen;
+
+    // -------------------------------------------------------------------------
+    // Per-stage last-valid cycle and gap violations
+    // -------------------------------------------------------------------------
+    integer run1_in_last_cycle,     run2_in_last_cycle;
+    integer run1_bg_last_cycle,     run2_bg_last_cycle;
+    integer run1_klin_last_cycle,   run2_klin_last_cycle;
+    integer run1_disp_last_cycle,   run2_disp_last_cycle;
+    integer run1_fft_last_cycle,    run2_fft_last_cycle;
+    integer run1_topsel_last_cycle, run2_topsel_last_cycle;
+    integer run1_mag_last_cycle,    run2_mag_last_cycle;
+    integer run1_final_last_cycle,  run2_final_last_cycle;
+
+    integer run1_in_gap_viol,     run2_in_gap_viol;
+    integer run1_bg_gap_viol,     run2_bg_gap_viol;
+    integer run1_klin_gap_viol,   run2_klin_gap_viol;
+    integer run1_disp_gap_viol,   run2_disp_gap_viol;
+    integer run1_fft_gap_viol,    run2_fft_gap_viol;
+    integer run1_topsel_gap_viol, run2_topsel_gap_viol;
+    integer run1_mag_gap_viol,    run2_mag_gap_viol;
+    integer run1_final_gap_viol,  run2_final_gap_viol;
 
     // -------------------------------------------------------------------------
     // Utility tasks
@@ -292,10 +337,10 @@ module tb_dsp_core_cal_compare;
 
     task automatic close_dump_files;
     begin
-    
         $display("---- CURRENT WORKING DIRECTORY ----");
         $system("cd");
         $display("-----------------------------------");
+
         $fclose(f_pre_in);
         $fclose(f_pre_bg);
         $fclose(f_pre_klin);
@@ -337,6 +382,146 @@ module tb_dsp_core_cal_compare;
         post_mag_count     = 0;
         post_final_count   = 0;
         post_rowdone_count = 0;
+    end
+    endtask
+
+    task automatic reset_stream_checks;
+    begin
+        run1_in_first_cycle     = -1; run2_in_first_cycle     = -1;
+        run1_bg_first_cycle     = -1; run2_bg_first_cycle     = -1;
+        run1_klin_first_cycle   = -1; run2_klin_first_cycle   = -1;
+        run1_disp_first_cycle   = -1; run2_disp_first_cycle   = -1;
+        run1_fft_first_cycle    = -1; run2_fft_first_cycle    = -1;
+        run1_topsel_first_cycle = -1; run2_topsel_first_cycle = -1;
+        run1_mag_first_cycle    = -1; run2_mag_first_cycle    = -1;
+        run1_final_first_cycle  = -1; run2_final_first_cycle  = -1;
+
+        run1_in_seen     = 1'b0; run2_in_seen     = 1'b0;
+        run1_bg_seen     = 1'b0; run2_bg_seen     = 1'b0;
+        run1_klin_seen   = 1'b0; run2_klin_seen   = 1'b0;
+        run1_disp_seen   = 1'b0; run2_disp_seen   = 1'b0;
+        run1_fft_seen    = 1'b0; run2_fft_seen    = 1'b0;
+        run1_topsel_seen = 1'b0; run2_topsel_seen = 1'b0;
+        run1_mag_seen    = 1'b0; run2_mag_seen    = 1'b0;
+        run1_final_seen  = 1'b0; run2_final_seen  = 1'b0;
+
+        run1_in_last_cycle     = -1; run2_in_last_cycle     = -1;
+        run1_bg_last_cycle     = -1; run2_bg_last_cycle     = -1;
+        run1_klin_last_cycle   = -1; run2_klin_last_cycle   = -1;
+        run1_disp_last_cycle   = -1; run2_disp_last_cycle   = -1;
+        run1_fft_last_cycle    = -1; run2_fft_last_cycle    = -1;
+        run1_topsel_last_cycle = -1; run2_topsel_last_cycle = -1;
+        run1_mag_last_cycle    = -1; run2_mag_last_cycle    = -1;
+        run1_final_last_cycle  = -1; run2_final_last_cycle  = -1;
+
+        run1_in_gap_viol     = 0; run2_in_gap_viol     = 0;
+        run1_bg_gap_viol     = 0; run2_bg_gap_viol     = 0;
+        run1_klin_gap_viol   = 0; run2_klin_gap_viol   = 0;
+        run1_disp_gap_viol   = 0; run2_disp_gap_viol   = 0;
+        run1_fft_gap_viol    = 0; run2_fft_gap_viol    = 0;
+        run1_topsel_gap_viol = 0; run2_topsel_gap_viol = 0;
+        run1_mag_gap_viol    = 0; run2_mag_gap_viol    = 0;
+        run1_final_gap_viol  = 0; run2_final_gap_viol  = 0;
+    end
+    endtask
+
+    task automatic report_run_latency(input integer run_id);
+        integer in0, bg0, klin0, disp0, fft0, topsel0, mag0, final0;
+    begin
+        if (run_id == 1) begin
+            in0     = run1_in_first_cycle;
+            bg0     = run1_bg_first_cycle;
+            klin0   = run1_klin_first_cycle;
+            disp0   = run1_disp_first_cycle;
+            fft0    = run1_fft_first_cycle;
+            topsel0 = run1_topsel_first_cycle;
+            mag0    = run1_mag_first_cycle;
+            final0  = run1_final_first_cycle;
+        end else begin
+            in0     = run2_in_first_cycle;
+            bg0     = run2_bg_first_cycle;
+            klin0   = run2_klin_first_cycle;
+            disp0   = run2_disp_first_cycle;
+            fft0    = run2_fft_first_cycle;
+            topsel0 = run2_topsel_first_cycle;
+            mag0    = run2_mag_first_cycle;
+            final0  = run2_final_first_cycle;
+        end
+
+        $display("--------------------------------------------------");
+        $display("LATENCY REPORT: RUN %0d", run_id);
+        $display("All values are in clock cycles.");
+        $display("Cumulative from first input valid:");
+        $display("  bg_sub     = %0d", bg0     - in0);
+        $display("  k_lin      = %0d", klin0   - in0);
+        $display("  disp_comp  = %0d", disp0   - in0);
+        $display("  fft        = %0d", fft0    - in0);
+        $display("  top_select = %0d", topsel0 - in0);
+        $display("  mag_calc   = %0d", mag0    - in0);
+        $display("  log & gs   = %0d", final0  - in0);
+
+        $display("Block-only first-sample latency:");
+        $display("  bg_sub     = %0d", bg0     - in0);
+        $display("  k_lin      = %0d", klin0   - bg0);
+        $display("  disp_comp  = %0d", disp0   - klin0);
+        $display("  fft        = %0d", fft0    - disp0);
+        $display("  top_select = %0d", topsel0 - fft0);
+        $display("  mag_calc   = %0d", mag0    - topsel0);
+        $display("  log & gs   = %0d", final0  - mag0);
+    end
+    endtask
+
+    task automatic report_run_streaming(input integer run_id);
+        integer total_viol;
+    begin
+        total_viol = 0;
+
+        $display("--------------------------------------------------");
+        $display("STREAMING GAP REPORT: RUN %0d", run_id);
+        $display("A violation means successive output valids were more than 1 clock apart.");
+
+        if (run_id == 1) begin
+            $display("  input      gap violations = %0d", run1_in_gap_viol);     total_viol = total_viol + run1_in_gap_viol;
+            $display("  bg_sub     gap violations = %0d", run1_bg_gap_viol);     total_viol = total_viol + run1_bg_gap_viol;
+            $display("  k_lin      gap violations = %0d", run1_klin_gap_viol);   total_viol = total_viol + run1_klin_gap_viol;
+            $display("  disp_comp  gap violations = %0d", run1_disp_gap_viol);   total_viol = total_viol + run1_disp_gap_viol;
+            $display("  fft        gap violations = %0d", run1_fft_gap_viol);    total_viol = total_viol + run1_fft_gap_viol;
+            $display("  top_select gap violations = %0d", run1_topsel_gap_viol); total_viol = total_viol + run1_topsel_gap_viol;
+            $display("  mag_calc   gap violations = %0d", run1_mag_gap_viol);    total_viol = total_viol + run1_mag_gap_viol;
+            $display("  final      gap violations = %0d", run1_final_gap_viol);  total_viol = total_viol + run1_final_gap_viol;
+
+            if (run1_in_gap_viol     > 0) $display("    VIOLATION BLOCK: input");
+            if (run1_bg_gap_viol     > 0) $display("    VIOLATION BLOCK: bg_sub");
+            if (run1_klin_gap_viol   > 0) $display("    VIOLATION BLOCK: k_lin");
+            if (run1_disp_gap_viol   > 0) $display("    VIOLATION BLOCK: disp_comp");
+            if (run1_fft_gap_viol    > 0) $display("    VIOLATION BLOCK: fft");
+            if (run1_topsel_gap_viol > 0) $display("    VIOLATION BLOCK: top_select");
+            if (run1_mag_gap_viol    > 0) $display("    VIOLATION BLOCK: mag_calc");
+            if (run1_final_gap_viol  > 0) $display("    VIOLATION BLOCK: final");
+        end else begin
+            $display("  input      gap violations = %0d", run2_in_gap_viol);     total_viol = total_viol + run2_in_gap_viol;
+            $display("  bg_sub     gap violations = %0d", run2_bg_gap_viol);     total_viol = total_viol + run2_bg_gap_viol;
+            $display("  k_lin      gap violations = %0d", run2_klin_gap_viol);   total_viol = total_viol + run2_klin_gap_viol;
+            $display("  disp_comp  gap violations = %0d", run2_disp_gap_viol);   total_viol = total_viol + run2_disp_gap_viol;
+            $display("  fft        gap violations = %0d", run2_fft_gap_viol);    total_viol = total_viol + run2_fft_gap_viol;
+            $display("  top_select gap violations = %0d", run2_topsel_gap_viol); total_viol = total_viol + run2_topsel_gap_viol;
+            $display("  mag_calc   gap violations = %0d", run2_mag_gap_viol);    total_viol = total_viol + run2_mag_gap_viol;
+            $display("  final      gap violations = %0d", run2_final_gap_viol);  total_viol = total_viol + run2_final_gap_viol;
+
+            if (run2_in_gap_viol     > 0) $display("    VIOLATION BLOCK: input");
+            if (run2_bg_gap_viol     > 0) $display("    VIOLATION BLOCK: bg_sub");
+            if (run2_klin_gap_viol   > 0) $display("    VIOLATION BLOCK: k_lin");
+            if (run2_disp_gap_viol   > 0) $display("    VIOLATION BLOCK: disp_comp");
+            if (run2_fft_gap_viol    > 0) $display("    VIOLATION BLOCK: fft");
+            if (run2_topsel_gap_viol > 0) $display("    VIOLATION BLOCK: top_select");
+            if (run2_mag_gap_viol    > 0) $display("    VIOLATION BLOCK: mag_calc");
+            if (run2_final_gap_viol  > 0) $display("    VIOLATION BLOCK: final");
+        end
+
+        if (total_viol == 0)
+            $display("  RESULT: no streaming gap violations in run %0d", run_id);
+        else
+            $display("  RESULT: %0d total streaming gap violations in run %0d", total_viol, run_id);
     end
     endtask
 
@@ -490,11 +675,198 @@ module tb_dsp_core_cal_compare;
     endtask
 
     // -------------------------------------------------------------------------
-    // Dump monitors
+    // Dump monitors + first-valid capture + gap checks
     // -------------------------------------------------------------------------
     always @(posedge clk) begin
-        if (!rst) begin
-            // input stream
+        if (rst) begin
+            // nothing
+        end else begin
+
+            // -------------------------------------------------------------
+            // RUN 1: first-valid capture
+            // -------------------------------------------------------------
+            if (active_run == 1) begin
+                if (stg_in_valid     && !run1_in_seen)     begin run1_in_seen     <= 1'b1; run1_in_first_cycle     <= sim_cycle; end
+                if (stg_bg_valid     && !run1_bg_seen)     begin run1_bg_seen     <= 1'b1; run1_bg_first_cycle     <= sim_cycle; end
+                if (stg_klin_valid   && !run1_klin_seen)   begin run1_klin_seen   <= 1'b1; run1_klin_first_cycle   <= sim_cycle; end
+                if (stg_disp_valid   && !run1_disp_seen)   begin run1_disp_seen   <= 1'b1; run1_disp_first_cycle   <= sim_cycle; end
+                if (stg_fft_valid    && !run1_fft_seen)    begin run1_fft_seen    <= 1'b1; run1_fft_first_cycle    <= sim_cycle; end
+                if (stg_topsel_valid && !run1_topsel_seen) begin run1_topsel_seen <= 1'b1; run1_topsel_first_cycle <= sim_cycle; end
+                if (stg_mag_valid    && !run1_mag_seen)    begin run1_mag_seen    <= 1'b1; run1_mag_first_cycle    <= sim_cycle; end
+                if (stg_final_valid  && !run1_final_seen)  begin run1_final_seen  <= 1'b1; run1_final_first_cycle  <= sim_cycle; end
+            end
+
+            // -------------------------------------------------------------
+            // RUN 2: first-valid capture
+            // -------------------------------------------------------------
+            if (active_run == 2) begin
+                if (stg_in_valid     && !run2_in_seen)     begin run2_in_seen     <= 1'b1; run2_in_first_cycle     <= sim_cycle; end
+                if (stg_bg_valid     && !run2_bg_seen)     begin run2_bg_seen     <= 1'b1; run2_bg_first_cycle     <= sim_cycle; end
+                if (stg_klin_valid   && !run2_klin_seen)   begin run2_klin_seen   <= 1'b1; run2_klin_first_cycle   <= sim_cycle; end
+                if (stg_disp_valid   && !run2_disp_seen)   begin run2_disp_seen   <= 1'b1; run2_disp_first_cycle   <= sim_cycle; end
+                if (stg_fft_valid    && !run2_fft_seen)    begin run2_fft_seen    <= 1'b1; run2_fft_first_cycle    <= sim_cycle; end
+                if (stg_topsel_valid && !run2_topsel_seen) begin run2_topsel_seen <= 1'b1; run2_topsel_first_cycle <= sim_cycle; end
+                if (stg_mag_valid    && !run2_mag_seen)    begin run2_mag_seen    <= 1'b1; run2_mag_first_cycle    <= sim_cycle; end
+                if (stg_final_valid  && !run2_final_seen)  begin run2_final_seen  <= 1'b1; run2_final_first_cycle  <= sim_cycle; end
+            end
+
+            // -------------------------------------------------------------
+            // RUN 1: gap checks
+            // -------------------------------------------------------------
+            if (active_run == 1) begin
+                if (stg_in_valid) begin
+                    if (run1_in_last_cycle >= 0 && (sim_cycle - run1_in_last_cycle) > 1) begin
+                        run1_in_gap_viol <= run1_in_gap_viol + 1;
+                        $display("[RUN1][STREAM GAP] input gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run1_in_last_cycle, sim_cycle);
+                    end
+                    run1_in_last_cycle <= sim_cycle;
+                end
+
+                if (stg_bg_valid) begin
+                    if (run1_bg_last_cycle >= 0 && (sim_cycle - run1_bg_last_cycle) > 1) begin
+                        run1_bg_gap_viol <= run1_bg_gap_viol + 1;
+                        $display("[RUN1][STREAM GAP] bg_sub gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run1_bg_last_cycle, sim_cycle);
+                    end
+                    run1_bg_last_cycle <= sim_cycle;
+                end
+
+                if (stg_klin_valid) begin
+                    if (run1_klin_last_cycle >= 0 && (sim_cycle - run1_klin_last_cycle) > 1) begin
+                        run1_klin_gap_viol <= run1_klin_gap_viol + 1;
+                        $display("[RUN1][STREAM GAP] k_lin gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run1_klin_last_cycle, sim_cycle);
+                    end
+                    run1_klin_last_cycle <= sim_cycle;
+                end
+
+                if (stg_disp_valid) begin
+                    if (run1_disp_last_cycle >= 0 && (sim_cycle - run1_disp_last_cycle) > 1) begin
+                        run1_disp_gap_viol <= run1_disp_gap_viol + 1;
+                        $display("[RUN1][STREAM GAP] disp_comp gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run1_disp_last_cycle, sim_cycle);
+                    end
+                    run1_disp_last_cycle <= sim_cycle;
+                end
+
+                if (stg_fft_valid) begin
+                    if (run1_fft_last_cycle >= 0 && (sim_cycle - run1_fft_last_cycle) > 1) begin
+                        run1_fft_gap_viol <= run1_fft_gap_viol + 1;
+                        $display("[RUN1][STREAM GAP] fft gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run1_fft_last_cycle, sim_cycle);
+                    end
+                    run1_fft_last_cycle <= sim_cycle;
+                end
+
+                if (stg_topsel_valid) begin
+                    if (run1_topsel_last_cycle >= 0 && (sim_cycle - run1_topsel_last_cycle) > 1) begin
+                        run1_topsel_gap_viol <= run1_topsel_gap_viol + 1;
+                        $display("[RUN1][STREAM GAP] top_select gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run1_topsel_last_cycle, sim_cycle);
+                    end
+                    run1_topsel_last_cycle <= sim_cycle;
+                end
+
+                if (stg_mag_valid) begin
+                    if (run1_mag_last_cycle >= 0 && (sim_cycle - run1_mag_last_cycle) > 1) begin
+                        run1_mag_gap_viol <= run1_mag_gap_viol + 1;
+                        $display("[RUN1][STREAM GAP] mag_calc gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run1_mag_last_cycle, sim_cycle);
+                    end
+                    run1_mag_last_cycle <= sim_cycle;
+                end
+
+                if (stg_final_valid) begin
+                    if (run1_final_last_cycle >= 0 && (sim_cycle - run1_final_last_cycle) > 1) begin
+                        run1_final_gap_viol <= run1_final_gap_viol + 1;
+                        $display("[RUN1][STREAM GAP] final gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run1_final_last_cycle, sim_cycle);
+                    end
+                    run1_final_last_cycle <= sim_cycle;
+                end
+            end
+
+            // -------------------------------------------------------------
+            // RUN 2: gap checks
+            // -------------------------------------------------------------
+            if (active_run == 2) begin
+                if (stg_in_valid) begin
+                    if (run2_in_last_cycle >= 0 && (sim_cycle - run2_in_last_cycle) > 1) begin
+                        run2_in_gap_viol <= run2_in_gap_viol + 1;
+                        $display("[RUN2][STREAM GAP] input gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run2_in_last_cycle, sim_cycle);
+                    end
+                    run2_in_last_cycle <= sim_cycle;
+                end
+
+                if (stg_bg_valid) begin
+                    if (run2_bg_last_cycle >= 0 && (sim_cycle - run2_bg_last_cycle) > 1) begin
+                        run2_bg_gap_viol <= run2_bg_gap_viol + 1;
+                        $display("[RUN2][STREAM GAP] bg_sub gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run2_bg_last_cycle, sim_cycle);
+                    end
+                    run2_bg_last_cycle <= sim_cycle;
+                end
+
+                if (stg_klin_valid) begin
+                    if (run2_klin_last_cycle >= 0 && (sim_cycle - run2_klin_last_cycle) > 1) begin
+                        run2_klin_gap_viol <= run2_klin_gap_viol + 1;
+                        $display("[RUN2][STREAM GAP] k_lin gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run2_klin_last_cycle, sim_cycle);
+                    end
+                    run2_klin_last_cycle <= sim_cycle;
+                end
+
+                if (stg_disp_valid) begin
+                    if (run2_disp_last_cycle >= 0 && (sim_cycle - run2_disp_last_cycle) > 1) begin
+                        run2_disp_gap_viol <= run2_disp_gap_viol + 1;
+                        $display("[RUN2][STREAM GAP] disp_comp gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run2_disp_last_cycle, sim_cycle);
+                    end
+                    run2_disp_last_cycle <= sim_cycle;
+                end
+
+                if (stg_fft_valid) begin
+                    if (run2_fft_last_cycle >= 0 && (sim_cycle - run2_fft_last_cycle) > 1) begin
+                        run2_fft_gap_viol <= run2_fft_gap_viol + 1;
+                        $display("[RUN2][STREAM GAP] fft gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run2_fft_last_cycle, sim_cycle);
+                    end
+                    run2_fft_last_cycle <= sim_cycle;
+                end
+
+                if (stg_topsel_valid) begin
+                    if (run2_topsel_last_cycle >= 0 && (sim_cycle - run2_topsel_last_cycle) > 1) begin
+                        run2_topsel_gap_viol <= run2_topsel_gap_viol + 1;
+                        $display("[RUN2][STREAM GAP] top_select gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run2_topsel_last_cycle, sim_cycle);
+                    end
+                    run2_topsel_last_cycle <= sim_cycle;
+                end
+
+                if (stg_mag_valid) begin
+                    if (run2_mag_last_cycle >= 0 && (sim_cycle - run2_mag_last_cycle) > 1) begin
+                        run2_mag_gap_viol <= run2_mag_gap_viol + 1;
+                        $display("[RUN2][STREAM GAP] mag_calc gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run2_mag_last_cycle, sim_cycle);
+                    end
+                    run2_mag_last_cycle <= sim_cycle;
+                end
+
+                if (stg_final_valid) begin
+                    if (run2_final_last_cycle >= 0 && (sim_cycle - run2_final_last_cycle) > 1) begin
+                        run2_final_gap_viol <= run2_final_gap_viol + 1;
+                        $display("[RUN2][STREAM GAP] final gap=%0d cycles at sim_cycle=%0d",
+                                 sim_cycle - run2_final_last_cycle, sim_cycle);
+                    end
+                    run2_final_last_cycle <= sim_cycle;
+                end
+            end
+
+            // -------------------------------------------------------------
+            // Original dump monitors
+            // -------------------------------------------------------------
             if (in_valid) begin
                 if (active_run == 1) begin
                     $fwrite(f_pre_in, "%08X\n", in_data);
@@ -505,7 +877,6 @@ module tb_dsp_core_cal_compare;
                 end
             end
 
-            // bg_sub
             if (dut.bgsub_out_valid) begin
                 if (active_run == 1) begin
                     $fwrite(f_pre_bg, "%08X\n", dut.bgsub_out_str);
@@ -516,7 +887,6 @@ module tb_dsp_core_cal_compare;
                 end
             end
 
-            // k_lin
             if (dut.klin_out_valid) begin
                 if (active_run == 1) begin
                     $fwrite(f_pre_klin, "%08X\n", dut.klin_out_str);
@@ -527,7 +897,6 @@ module tb_dsp_core_cal_compare;
                 end
             end
 
-            // disp_comp
             if (dut.disp_out_valid) begin
                 if (active_run == 1) begin
                     $fwrite(f_pre_disp, "%08X %08X\n", dut.disp_out_re, dut.disp_out_im);
@@ -538,7 +907,6 @@ module tb_dsp_core_cal_compare;
                 end
             end
 
-            // fft
             if (dut.fft_out_valid) begin
                 if (active_run == 1) begin
                     $fwrite(f_pre_fft, "%08X %08X\n", dut.fft_out_real, dut.fft_out_imag);
@@ -549,7 +917,6 @@ module tb_dsp_core_cal_compare;
                 end
             end
 
-            // top_select
             if (dut.topsel_out_valid) begin
                 if (active_run == 1) begin
                     $fwrite(f_pre_topsel, "%08X %08X\n", dut.topsel_out_real, dut.topsel_out_imag);
@@ -560,7 +927,6 @@ module tb_dsp_core_cal_compare;
                 end
             end
 
-            // mag
             if (dut.mag_out_valid) begin
                 if (active_run == 1) begin
                     $fwrite(f_pre_mag, "%017X\n", dut.mag_out);
@@ -571,7 +937,6 @@ module tb_dsp_core_cal_compare;
                 end
             end
 
-            // final
             if (out_valid) begin
                 if (active_run == 1) begin
                     $fwrite(f_pre_final, "%08X\n", out_data);
@@ -582,7 +947,6 @@ module tb_dsp_core_cal_compare;
                 end
             end
 
-            // row done count
             if (row_done) begin
                 if (active_run == 1)
                     pre_rowdone_count <= pre_rowdone_count + 1;
@@ -598,10 +962,9 @@ module tb_dsp_core_cal_compare;
     initial begin
         clear_inputs();
         reset_counters();
+        reset_stream_checks();
         open_dump_files();
 
-        // mem files
-        // Adjust these if your simulation working directory differs.
         $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/ignore/bg.mem",        bg_mem);
         $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/ignore/disp_cos.mem",  disp_cos_mem);
         $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/ignore/disp_sin.mem",  disp_sin_mem);
@@ -611,8 +974,7 @@ module tb_dsp_core_cal_compare;
         $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/ignore/klin_c2.mem",   klin_c2_mem);
         $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/ignore/klin_c3.mem",   klin_c3_mem);
         $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/ignore/input_sig.mem", input_sig_mem);
-        
-        
+
         $display("bg_mem[0]        = %08X", bg_mem[0]);
         $display("disp_cos_mem[0]  = %08X", disp_cos_mem[0]);
         $display("disp_sin_mem[0]  = %08X", disp_sin_mem[0]);
@@ -620,13 +982,13 @@ module tb_dsp_core_cal_compare;
         $display("input_sig_mem[0] = %08X", input_sig_mem[0]);
 
         $display("==================================================");
-        $display("TB: dsp_core calibration compare");
+        $display("TB: dsp_core calibration compare + streaming checks");
         $display("==================================================");
 
         pulse_reset();
 
         // -------------------------------------------------------------
-        // RUN 1: before calibration
+        // RUN 1
         // -------------------------------------------------------------
         runtime_valid <= 8'h00;
         wait_clk(4);
@@ -639,9 +1001,11 @@ module tb_dsp_core_cal_compare;
         wait_for_row_done_or_timeout(500000);
         wait_clk(20);
 
-        // idle before calibration load
         active_run = 0;
         wait_clk(10);
+
+        report_run_latency(1);
+        report_run_streaming(1);
 
         // -------------------------------------------------------------
         // CALIBRATION LOAD
@@ -654,7 +1018,7 @@ module tb_dsp_core_cal_compare;
         wait_clk(20);
 
         // -------------------------------------------------------------
-        // RUN 2: after calibration
+        // RUN 2
         // -------------------------------------------------------------
         $display("--------------------------------------------------");
         $display("RUN 2: post-calibration row");
@@ -666,6 +1030,9 @@ module tb_dsp_core_cal_compare;
 
         active_run = 0;
         wait_clk(10);
+
+        report_run_latency(2);
+        report_run_streaming(2);
 
         // -------------------------------------------------------------
         // Summary
@@ -696,11 +1063,6 @@ module tb_dsp_core_cal_compare;
         $display("  final   = %0d", post_final_count);
         $display("  rowdone = %0d", post_rowdone_count);
 
-        $display("Expected rough structure:");
-        $display("  input/bg/klin/disp/fft  ~= 1024 samples");
-        $display("  topsel/mag/final        ~= 512 samples");
-        $display("  rowdone                 = 1 per run");
-
         $display("Files generated:");
         $display("  pre_input.txt      post_input.txt");
         $display("  pre_bg_out.txt     post_bg_out.txt");
@@ -726,3 +1088,4 @@ module tb_dsp_core_cal_compare;
     end
 
 endmodule
+
