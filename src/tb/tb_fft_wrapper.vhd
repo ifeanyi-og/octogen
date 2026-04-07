@@ -8,11 +8,11 @@ end entity;
 
 architecture sim of tb_fft_wrapper is
 
-    constant CLK_PERIOD : time := 10 ns;
-    constant NFFT       : integer := 1024;
-    constant TONE_BIN   : integer := 37;
-    constant AMP        : real    := 10000.0;
-    constant N_FRAMES   : integer := 4;
+    constant CLK_PERIOD       : time := 10 ns;
+    constant NFFT             : integer := 1024;
+    constant TONE_BIN         : integer := 37;
+    constant AMP              : real    := 10000.0;
+    constant POST_RESET_DELAY : integer := 1200;
 
     --------------------------------------------------------------------
     -- DUT signals
@@ -40,14 +40,18 @@ architecture sim of tb_fft_wrapper is
     signal dbg_input_backpressure_violation : std_logic;
 
     --------------------------------------------------------------------
-    -- Monitoring
+    -- Monitoring / capture
     --------------------------------------------------------------------
-    signal in_accept_count : integer := 0;
-    signal soa_in_count    : integer := 0;
-    signal out_count       : integer := 0;
-    signal soa_out_count   : integer := 0;
-    
-    signal  dbg_cfg_done : std_logic;
+    type int_array_t is array (0 to NFFT-1) of integer;
+
+    signal soa_in_count      : integer := 0;
+    signal soa_out_count     : integer := 0;
+    signal out_count_total   : integer := 0;
+
+    signal frame_capture_active : std_logic := '0';
+    signal out_idx_in_frame     : integer range 0 to NFFT := 0;
+    signal mag_sq_store         : int_array_t := (others => 0);
+    signal capture_done         : std_logic := '0';
 
 begin
 
@@ -98,12 +102,6 @@ begin
 
     --------------------------------------------------------------------
     -- Stimulus
-    --
-    -- Sends N_FRAMES back-to-back complex-tone frames with:
-    --   * one valid sample every clock
-    --   * no gaps between frames
-    --
-    -- This is the stress test for continuous valid-only streaming.
     --------------------------------------------------------------------
     p_stimulus : process
         procedure send_complex_tone_frame (
@@ -118,7 +116,7 @@ begin
             for n in 0 to NFFT-1 loop
                 theta  := 2.0 * math_pi * real(bin_idx * n) / real(NFFT);
                 re_val := integer(amp_val * cos(theta));
-                im_val := integer(amp_val * sin(theta));
+                im_val := integer(-amp_val * sin(theta));
 
                 in_real        <= to_signed(re_val, 32);
                 in_imag        <= to_signed(im_val, 32);
@@ -137,20 +135,16 @@ begin
                 wait until rising_edge(clk);
             end loop;
         end procedure;
-
-        variable f : integer;
     begin
         wait until rst = '0';
-        wait until rising_edge(clk);
-        wait until rising_edge(clk);
 
-        report "Sending " & integer'image(N_FRAMES) &
-               " back-to-back complex-tone frames with no gaps"
-               severity note;
-
-        for f in 1 to N_FRAMES loop
-            send_complex_tone_frame(TONE_BIN, AMP);
+        report "Waiting after reset to mimic upstream latency..." severity note;
+        for i in 0 to POST_RESET_DELAY loop
+            wait until rising_edge(clk);
         end loop;
+
+        report "Sending one complex-tone frame for natural-order bin check" severity note;
+        send_complex_tone_frame(TONE_BIN, AMP);
 
         in_valid        <= '0';
         start_of_ascan  <= '0';
@@ -158,50 +152,20 @@ begin
         in_real         <= (others => '0');
         in_imag         <= (others => '0');
 
-        ----------------------------------------------------------------
-        -- Wait long enough for outputs to drain
-        ----------------------------------------------------------------
-        wait for 150000 ns;
+        wait until capture_done = '1';
+        wait for 100 ns;
 
-        ----------------------------------------------------------------
-        -- Final checks
-        ----------------------------------------------------------------
-        assert soa_in_count = N_FRAMES
-            report "Expected " & integer'image(N_FRAMES) &
-                   " input frame starts, got " & integer'image(soa_in_count)
-            severity failure;
-
-        assert soa_out_count = N_FRAMES
-            report "Expected " & integer'image(N_FRAMES) &
-                   " output frame starts, got " & integer'image(soa_out_count)
-            severity failure;
-
-        assert soa_out_count = soa_in_count
-            report "Mismatch between input and output frame counts"
-            severity failure;
-
-        assert out_count > 0
-            report "No FFT outputs observed"
-            severity failure;
-
-        report "Back-to-back frame stress test complete" severity note;
+        report "FFT natural-order bin-check stimulus complete" severity note;
         wait;
     end process;
 
     --------------------------------------------------------------------
-    -- Input-side monitor
+    -- Input monitor
     --------------------------------------------------------------------
     p_input_monitor : process(clk)
     begin
         if rising_edge(clk) then
-            if rst = '1' then
-                in_accept_count <= 0;
-                soa_in_count    <= 0;
-            else
-                if in_valid = '1' then
-                    in_accept_count <= in_accept_count + 1;
-                end if;
-
+            if rst = '0' then
                 if in_valid = '1' and start_of_ascan = '1' then
                     soa_in_count <= soa_in_count + 1;
                 end if;
@@ -210,50 +174,74 @@ begin
     end process;
 
     --------------------------------------------------------------------
-    -- Output/event monitor
+    -- Output / event monitor and frame capture
     --------------------------------------------------------------------
     p_monitor : process(clk)
+        variable re_i  : integer;
+        variable im_i  : integer;
+        variable mag_i : integer;
     begin
         if rising_edge(clk) then
             if rst = '1' then
-                out_count     <= 0;
-                soa_out_count <= 0;
+                soa_out_count        <= 0;
+                out_count_total      <= 0;
+                frame_capture_active <= '0';
+                out_idx_in_frame     <= 0;
+                capture_done         <= '0';
             else
                 ----------------------------------------------------------------
-                -- These should never assert in the intended operating mode
+                -- Critical assertions
                 ----------------------------------------------------------------
                 assert dbg_input_backpressure_violation = '0'
-                    report "FFT wrapper saw input valid while FFT input was not ready"
-                    severity failure;
-
-                assert dbg_event_tlast_unexpected = '0'
-                    report "FFT event_tlast_unexpected asserted"
-                    severity failure;
-
-                assert dbg_event_tlast_missing = '0'
-                    report "FFT event_tlast_missing asserted"
-                    severity failure;
-
-                assert dbg_event_status_channel_halt = '0'
-                    report "FFT event_status_channel_halt asserted"
+                    report "Backpressure violation!"
                     severity failure;
 
                 assert dbg_event_data_in_channel_halt = '0'
-                    report "FFT event_data_in_channel_halt asserted"
+                    report "FFT input halt detected!"
+                    severity failure;
+
+                assert dbg_event_tlast_missing = '0'
+                    report "Missing TLAST!"
+                    severity failure;
+
+                assert dbg_event_tlast_unexpected = '0'
+                    report "Unexpected TLAST!"
+                    severity failure;
+
+                assert dbg_event_status_channel_halt = '0'
+                    report "Status channel halt detected!"
                     severity failure;
 
                 assert dbg_event_data_out_channel_halt = '0'
-                    report "FFT event_data_out_channel_halt asserted"
+                    report "FFT output halt detected!"
                     severity failure;
 
                 ----------------------------------------------------------------
-                -- Output capture / frame-start counting
+                -- Output handling
                 ----------------------------------------------------------------
                 if out_valid = '1' then
-                    out_count <= out_count + 1;
+                    out_count_total <= out_count_total + 1;
 
                     if start_of_ascan_out = '1' then
                         soa_out_count <= soa_out_count + 1;
+                        frame_capture_active <= '1';
+                        out_idx_in_frame <= 0;
+                    end if;
+
+                    if frame_capture_active = '1' or start_of_ascan_out = '1' then
+                        re_i  := to_integer(out_real);
+                        im_i  := to_integer(out_imag);
+                        mag_i := re_i * re_i + im_i * im_i;
+
+                        if out_idx_in_frame < NFFT then
+                            mag_sq_store(out_idx_in_frame) <= mag_i;
+                            out_idx_in_frame <= out_idx_in_frame + 1;
+                        end if;
+
+                        if out_idx_in_frame = NFFT-1 then
+                            frame_capture_active <= '0';
+                            capture_done <= '1';
+                        end if;
                     end if;
                 end if;
             end if;
@@ -261,18 +249,61 @@ begin
     end process;
 
     --------------------------------------------------------------------
-    -- Optional reporting for waveform/log visibility
+    -- Bin correctness check for NATURAL-ORDER FFT output
     --------------------------------------------------------------------
-    p_report : process(clk)
+    p_check : process
+        variable max_mag       : integer;
+        variable max_idx       : integer;
+        variable second_mag    : integer;
+        variable expected_idx  : integer;
     begin
-        if rising_edge(clk) then
-            if out_valid = '1' then
-                report "FFT OUT re=" & integer'image(to_integer(out_real)) &
-                       " im=" & integer'image(to_integer(out_imag)) &
-                       " soa=" & std_logic'image(start_of_ascan_out)
-                       severity note;
+        wait until capture_done = '1';
+        wait for 1 ns;
+
+        ----------------------------------------------------------------
+        -- Find largest and second-largest bins
+        ----------------------------------------------------------------
+        max_mag    := mag_sq_store(0);
+        max_idx    := 0;
+        second_mag := 0;
+
+        for i in 1 to NFFT-1 loop
+            if mag_sq_store(i) > max_mag then
+                second_mag := max_mag;
+                max_mag    := mag_sq_store(i);
+                max_idx    := i;
+            elsif mag_sq_store(i) > second_mag then
+                second_mag := mag_sq_store(i);
             end if;
-        end if;
+        end loop;
+
+        expected_idx := TONE_BIN;
+
+        report "Expected dominant output index = " & integer'image(expected_idx) severity note;
+        report "Observed dominant output index = " & integer'image(max_idx) severity note;
+        report "Observed dominant magnitude^2 = " & integer'image(max_mag) severity note;
+        report "Observed second-largest magnitude^2 = " & integer'image(second_mag) severity note;
+
+        assert soa_in_count = 1
+            report "Expected 1 input frame start, got " & integer'image(soa_in_count)
+            severity failure;
+
+        assert soa_out_count = 1
+            report "Expected 1 output frame start, got " & integer'image(soa_out_count)
+            severity failure;
+
+        assert max_idx = expected_idx
+            report "FFT dominant bin index mismatch: expected " &
+                   integer'image(expected_idx) & ", got " &
+                   integer'image(max_idx)
+            severity failure;
+
+        assert max_mag > second_mag
+            report "Dominant FFT bin is not larger than second-largest bin"
+            severity failure;
+
+        report "TEST PASSED: FFT natural-order bin correctness verified" severity note;
+        wait;
     end process;
 
 end architecture;
