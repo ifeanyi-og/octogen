@@ -22,11 +22,15 @@ entity disp_comp is
     in_valid        : in  std_logic;
     start_of_ascan  : in  std_logic;
 
-    -- LUT write interface
-    lut_wr_en    : in  std_logic;
-    lut_wr_addr  : in  std_logic_vector(ADDR_W-1 downto 0);
-    lut_cos_din  : in  std_logic_vector(LUT_W-1 downto 0);
-    lut_sin_din  : in  std_logic_vector(LUT_W-1 downto 0);
+    -- cosine LUT write interface
+    lut_cos_wr_en   : in  std_logic;
+    lut_cos_wr_addr : in  std_logic_vector(ADDR_W-1 downto 0);
+    lut_cos_din     : in  std_logic_vector(LUT_W-1 downto 0);
+
+    -- sine LUT write interface
+    lut_sin_wr_en   : in  std_logic;
+    lut_sin_wr_addr : in  std_logic_vector(ADDR_W-1 downto 0);
+    lut_sin_din     : in  std_logic_vector(LUT_W-1 downto 0);
 
     -- streaming output
     out_re             : out std_logic_vector(IN_W-1 downto 0);
@@ -104,9 +108,9 @@ architecture rtl of disp_comp is
   signal soa_out_r  : std_logic := '0';
   signal eoa_out_r  : std_logic := '0';
 
-  signal lut_we     : std_logic_vector(0 downto 0);
-  
-  signal lut_re_en : std_logic;
+  signal lut_cos_we : std_logic_vector(0 downto 0);
+  signal lut_sin_we : std_logic_vector(0 downto 0);
+  signal lut_re_en  : std_logic;
   
   signal curr_idx : unsigned (ADDR_W-1 downto 0);
 
@@ -132,7 +136,8 @@ architecture rtl of disp_comp is
 
 begin
 
-  lut_we(0) <= lut_wr_en;
+  lut_cos_we(0) <= lut_cos_wr_en;
+  lut_sin_we(0) <= lut_sin_wr_en;
   curr_idx  <= (others => '0') when (in_valid = '1' and start_of_ascan = '1') else sample_idx;
   ram_raddr <= std_logic_vector(curr_idx);
 
@@ -155,16 +160,16 @@ begin
         end if;
       end if;
    end process;
-lut_re_en <= not lut_wr_en;
+lut_re_en <= not (lut_cos_wr_en or lut_sin_wr_en);
 
   u_cos : disp_cos_rom
     port map (
       -- Port A: write
       clka  => clk,
       ena   => '1',
-      addra => lut_wr_addr,
+      addra => lut_cos_wr_addr,
       dina  => lut_cos_din,
-      wea   => lut_we,
+      wea   => lut_cos_we,
 
       -- Port B: read
       clkb  => clk,
@@ -178,9 +183,9 @@ lut_re_en <= not lut_wr_en;
       -- Port A: write
       clka  => clk,
       ena   => '1',
-      addra => lut_wr_addr,
+      addra => lut_sin_wr_addr,
       dina  => lut_sin_din,
-      wea   => lut_we,
+      wea   => lut_sin_we,
 
       -- Port B: read
       clkb  => clk,
