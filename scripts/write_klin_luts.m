@@ -1,8 +1,6 @@
 %load in a sample b-scan first and pull a random a scan from raw_signals
-ascan=raw_signals(100, :);
-ascan=ascan-mybg;
 
-[base, c0, c1, c2, c3] = gen_klin_tables_fpga(ascan, kclk);
+[base, c0, c1, c2, c3] = gen_klin_tables_fpga(kclk);
 
 write_klin_tables_mat(base, c0, c1, c2, c3);
 
