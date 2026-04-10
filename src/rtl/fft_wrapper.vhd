@@ -117,7 +117,7 @@ architecture rtl of fft_wrapper is
     signal start_of_ascan_reg  : std_logic := '0';
     signal out_frame_active    : std_logic := '0';
 
-    constant FFT_CONFIG_FWD : std_logic_vector(15 downto 0) := (others => '0');
+    constant FFT_CONFIG_FWD : std_logic_vector(15 downto 0) :=  x"0001";
     
     signal cfg_done_s : std_logic := '0';
     signal cfg_valid_s : std_logic := '0';

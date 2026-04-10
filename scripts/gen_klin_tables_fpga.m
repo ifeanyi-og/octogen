@@ -1,15 +1,29 @@
-function [base, c0_q, c1_q, c2_q, c3_q, info] = gen_klin_tables_fpga(ascan, kclk, varargin)
+function [base, c0_q, c1_q, c2_q, c3_q, info] = gen_klin_tables_fpga(kclk, varargin)
 %GEN_KLIN_TABLES_FPGA
-% Generate base indices + quantized cubic interpolation coefficients
-% directly usable in FPGA BRAM.
+% Generate base indices and quantized cubic interpolation coefficients
+% for FPGA k-linearization, using only the sampling geometry vector.
+%
+% Inputs:
+%   kclk : sampling geometry vector (monotonic or approximately monotonic)
+%
+% Name-value options:
+%   'A'              : Keys cubic parameter (default = -0.5)
+%   'FRAC_BITS'      : fractional bits for fixed-point coeffs (default = 16)
+%   'COEF_W'         : coefficient bit width (default = 18)
+%   'ForceMonotonic' : force monotonic kclk via cumulative max/min (default = true)
 %
 % Outputs:
-%   base  : uint16 (0-based indices)
-%   c*_q  : int32 (quantized Q format, e.g., Q2.16 in 18 bits)
-%   info  : debug struct (optional)
+%   base  : uint16, 0-based base indices for FPGA
+%   c0_q  : int32, quantized coefficient for tap base-1
+%   c1_q  : int32, quantized coefficient for tap base
+%   c2_q  : int32, quantized coefficient for tap base+1
+%   c3_q  : int32, quantized coefficient for tap base+2
+%   info  : debug struct
 %
-% Default:
-%   FRAC_BITS = 16, COEF_W = 18
+% Notes:
+%   - base is clamped so taps [base-1, base, base+1, base+2] are valid
+%   - coefficients are normalized before quantization
+%   - quantized coeffs are saturated to signed COEF_W range
 
     % -----------------------------
     % Parameters
@@ -25,16 +39,15 @@ function [base, c0_q, c1_q, c2_q, c3_q, info] = gen_klin_tables_fpga(ascan, kclk
     FRAC_BITS = p.Results.FRAC_BITS;
     COEF_W    = p.Results.COEF_W;
 
-    x = ascan(:);
     k = kclk(:);
-    N = numel(x);
+    N = numel(k);
 
-    if numel(k) ~= N
-        error('ascan and kclk must match length.');
+    if N < 4
+        error('kclk must contain at least 4 samples.');
     end
 
     % -----------------------------
-    % Step 1: monotonic kclk
+    % Step 1: enforce monotonic geometry
     % -----------------------------
     if p.Results.ForceMonotonic
         if k(end) >= k(1)
@@ -54,7 +67,7 @@ function [base, c0_q, c1_q, c2_q, c3_q, info] = gen_klin_tables_fpga(ascan, kclk
     end
 
     % -----------------------------
-    % Step 2: uniform k grid
+    % Step 2: build uniform target grid
     % -----------------------------
     if k_dir > 0
         k_uniform = linspace(k_mono(1), k_mono(end), N).';
@@ -67,28 +80,32 @@ function [base, c0_q, c1_q, c2_q, c3_q, info] = gen_klin_tables_fpga(ascan, kclk
     end
 
     % -----------------------------
-    % Step 3: fractional index
+    % Step 3: map uniform-k positions into raw sample index space
     % -----------------------------
     u = interp1(k_interp, n_interp, k_uniform, 'linear', 'extrap');
 
     % -----------------------------
-    % Step 4: base + fractional offset
+    % Step 4: base index + fractional offset
     % -----------------------------
+    % Clamp mapped positions into valid sample-index space
+    u = max(min(u, N-1), 0);
+    
+    % True 0-based FPGA base index
     base = floor(u);
-
-    base = max(min(base, N-3), 1);   % ensure valid taps
+    
+    % Fractional offset
     t = u - base;
-    t = max(min(t,1),0);
+    t = max(min(t, 1), 0);
 
     % -----------------------------
-    % Step 5: cubic coefficients
+    % Step 5: Keys cubic coefficients
     % -----------------------------
-    c0 = keys_kernel(t + 1, a);
-    c1 = keys_kernel(t    , a);
-    c2 = keys_kernel(1 - t, a);
-    c3 = keys_kernel(2 - t, a);
+    c0 = keys_kernel(t + 1, a);   % tap at base-1
+    c1 = keys_kernel(t    , a);   % tap at base
+    c2 = keys_kernel(1 - t, a);   % tap at base+1
+    c3 = keys_kernel(2 - t, a);   % tap at base+2
 
-    % normalize (important for stability)
+    % Normalize to improve numerical stability
     s = c0 + c1 + c2 + c3;
     c0 = c0 ./ s;
     c1 = c1 ./ s;
@@ -96,7 +113,7 @@ function [base, c0_q, c1_q, c2_q, c3_q, info] = gen_klin_tables_fpga(ascan, kclk
     c3 = c3 ./ s;
 
     % -----------------------------
-    % Step 6: quantization (Q format)
+    % Step 6: quantize to signed fixed-point
     % -----------------------------
     scale = 2^FRAC_BITS;
 
@@ -108,25 +125,33 @@ function [base, c0_q, c1_q, c2_q, c3_q, info] = gen_klin_tables_fpga(ascan, kclk
     c2_q = round(c2 * scale);
     c3_q = round(c3 * scale);
 
-    % saturation
     c0_q = int32(max(min(c0_q, qmax), qmin));
     c1_q = int32(max(min(c1_q, qmax), qmin));
     c2_q = int32(max(min(c2_q, qmax), qmin));
     c3_q = int32(max(min(c3_q, qmax), qmin));
 
-    % base as uint (0-based indexing for FPGA)
+    % base stays 0-based for FPGA use
     base = uint16(base);
 
     % -----------------------------
     % Debug info
     % -----------------------------
     info = struct();
+    info.N = N;
+    info.k_mono = k_mono;
+    info.k_dir = k_dir;
+    info.k_uniform = k_uniform;
     info.u = u;
     info.t = t;
     info.coeff_sum = c0 + c1 + c2 + c3;
-    info.k_uniform = k_uniform;
+    info.c0 = c0;
+    info.c1 = c1;
+    info.c2 = c2;
+    info.c3 = c3;
+    info.qmin = qmin;
+    info.qmax = qmax;
+    info.scale = scale;
 end
-
 
 % ==========================================================
 function y = keys_kernel(x, a)
