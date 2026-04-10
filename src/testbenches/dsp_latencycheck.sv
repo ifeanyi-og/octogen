@@ -965,15 +965,15 @@ module tb_dsp_core_cal_compare;
         reset_stream_checks();
         open_dump_files();
 
-        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/ignore/bg.mem",        bg_mem);
-        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/ignore/disp_cos.mem",  disp_cos_mem);
-        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/ignore/disp_sin.mem",  disp_sin_mem);
-        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/ignore/klin_base.mem", klin_base_mem);
-        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/ignore/klin_c0.mem",   klin_c0_mem);
-        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/ignore/klin_c1.mem",   klin_c1_mem);
-        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/ignore/klin_c2.mem",   klin_c2_mem);
-        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/ignore/klin_c3.mem",   klin_c3_mem);
-        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/ignore/input_sig.mem", input_sig_mem);
+        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/test_dsp/bg_1024.mem",        bg_mem);
+        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/test_dsp/cos_lut.mem",  disp_cos_mem);
+        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/test_dsp/sin_lut.mem",  disp_sin_mem);
+        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/test_dsp/klin_base.mem", klin_base_mem);
+        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/test_dsp/klin_c0.mem",   klin_c0_mem);
+        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/test_dsp/klin_c1.mem",   klin_c1_mem);
+        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/test_dsp/klin_c2.mem",   klin_c2_mem);
+        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/test_dsp/klin_c3.mem",   klin_c3_mem);
+        $readmemh("C:/Users/ifean/fpga_dev/octogen/scripts/test_dsp/input_sig.mem", input_sig_mem);
 
         $display("bg_mem[0]        = %08X", bg_mem[0]);
         $display("disp_cos_mem[0]  = %08X", disp_cos_mem[0]);

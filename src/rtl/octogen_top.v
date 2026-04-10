@@ -120,11 +120,15 @@ module octogen_top (
     wire        cal_rejected_busy;
     wire        cal_rejected_mode;
     wire [7:0]  runtime_valid;
+    wire [7:0]  cal_seen_db;
+    wire [7:0]  pc_valid;
+    wire [7:0]  in_progress;
 
     // Conservative policy:
     // allow calibration only while DSP is not busy.
-    assign allow_cal = ~dsp_busy;
-
+    // assign allow_cal = ~dsp_busy;
+    assign allow_cal = 1'b1;
+    
     // =========================================================================
     // Calibration BRAM write buses: udp_processing_top -> dsp_core_top
     // =========================================================================
@@ -254,6 +258,9 @@ module octogen_top (
         .cal_rejected_busy (cal_rejected_busy),
         .cal_rejected_mode (cal_rejected_mode),
         .runtime_valid     (runtime_valid),
+        .pc_valid          (pc_valid),
+        .in_progress       (in_progress),
+        .cal_seen_db       (cal_seen_db),
 
         .bg_wr_en          (bg_wr_en),
         .bg_wr_we          (bg_wr_we),
@@ -366,10 +373,17 @@ module octogen_top (
     always @(posedge clk_100mhz) begin
         if (axis_reset)
             my_led <= 8'h00;
+        else if (!my_btns[3])
+            my_led <= pc_valid;
+        else if (!my_btns[2])
+            my_led <= in_progress;
+        else if (!my_btns[1])
+            my_led <= cal_seen_db;
+        else if (!my_btns[0])
+            my_led <= runtime_valid;
         else
             my_led <= runtime_valid;
     end
 
 endmodule
-
 

@@ -234,7 +234,7 @@ module dsp_core_top #(
     wire dbg_cfg_done;
     wire dbg_input_backpressure_violation;
 
-    fft_dummy u_fft_wrapper (
+    fft_wrapper u_fft_wrapper (
         .clk                             (clk),
         .rst                             (rst),
 
