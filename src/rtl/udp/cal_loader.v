@@ -7,45 +7,45 @@ module calibration_loader #(
     input  wire        rst,
 
     // From rx handler / top-level routing
-    (* mark_debug = "true" *) input  wire        hdr_valid,
-    (* mark_debug = "true" *) input  wire        pkt_is_cal,
-    (* mark_debug = "true" *) input  wire [7:0]  pkt_msg_type,
-    (* mark_debug = "true" *) input  wire [1:0]  batch_id,
-    (* mark_debug = "true" *) input  wire [9:0]  row_id,
+    input  wire        hdr_valid,
+    input  wire        pkt_is_cal,
+    input  wire [7:0]  pkt_msg_type,
+    input  wire [1:0]  batch_id,
+    input  wire [9:0]  row_id,
 
-    (* mark_debug = "true" *) input  wire        sample_valid,
-    (* mark_debug = "true" *) input  wire [31:0] sample_data,
-    (* mark_debug = "true" *) input  wire        sample_last,
-    (* mark_debug = "true" *) input  wire        batch_valid,
+    input  wire        sample_valid,
+    input  wire [31:0] sample_data,
+    input  wire        sample_last,
+    input  wire        batch_valid,
 
     // Policy control
-    (* mark_debug = "true" *) input  wire        allow_cal,
+    input  wire        allow_cal,
     input  wire        dsp_busy,
 
     // Status / LEDs
-    (* mark_debug = "true" *) output reg         cal_loading,
-    (* mark_debug = "true" *) output reg         cal_done_pulse,
-    (* mark_debug = "true" *) output reg         cal_error,
+    output reg         cal_loading,
+    output reg         cal_done_pulse,
+    output reg         cal_error,
     output reg         cal_rejected_busy,
     output reg         cal_rejected_mode,
 
     // LED bank 1: usable at runtime (includes initialized rows)
-    (* mark_debug = "true" *) output reg  [7:0]  runtime_valid,
+    output reg  [7:0]  runtime_valid,
 
     // LED bank 2: fully loaded from PC
-    (* mark_debug = "true" *) output reg  [7:0]  pc_valid,
+    output reg  [7:0]  pc_valid,
 
     // LED bank 3: sticky "rewrite started but not fully completed"
-    (* mark_debug = "true" *) output reg  [7:0]  in_progress,
+    output reg  [7:0]  in_progress,
 
     // Optional sticky visibility of which rows have ever received PC data
-    (* mark_debug = "true" *) output reg  [7:0]  cal_seen,
+    output reg  [7:0]  cal_seen,
 
     // background BRAM write interface (Port A)
-    (* mark_debug = "true" *) output reg         bg_wr_en,
+    output reg         bg_wr_en,
     output reg  [0:0]  bg_wr_we,
-    (* mark_debug = "true" *) output reg  [9:0]  bg_wr_addr,
-    (* mark_debug = "true" *) output reg  [31:0] bg_wr_data,
+    output reg  [9:0]  bg_wr_addr,
+    output reg  [31:0] bg_wr_data,
 
     // disp A BRAM write interface (Port A)
     output reg         disp_a_wr_en,
@@ -115,12 +115,12 @@ module calibration_loader #(
     localparam ST_LOADING = 2'd1;
     localparam ST_WAITHDR = 2'd2;
 
-    (* mark_debug = "true" *) reg [1:0] state;
-    (* mark_debug = "true" *) reg [2:0] cur_target_idx;
-    (* mark_debug = "true" *) reg [9:0] cur_target_row_id;
-    (* mark_debug = "true" *) reg [1:0] cur_batch_id;
-    (* mark_debug = "true" *) reg [7:0] sample_count;
-    (* mark_debug = "true" *) reg [9:0] wr_addr;
+    reg [1:0] state;
+    reg [2:0] cur_target_idx;
+    reg [9:0] cur_target_row_id;
+    reg [1:0] cur_batch_id;
+    reg [7:0] sample_count;
+    reg [9:0] wr_addr;
 
     function is_valid_cal_row;
         input [9:0] rid;

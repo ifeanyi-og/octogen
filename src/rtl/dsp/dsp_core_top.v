@@ -34,8 +34,8 @@ module dsp_core_top #(
     // DSP input stream
     // -------------------------------------------------------------------------
     input  wire        in_valid,
-    input  wire        in_row_start,
-    input  wire [31:0] in_data,
+    (* mark_debug = "true" *) input  wire        in_row_start,
+    (* mark_debug = "true" *) input  wire [31:0] in_data,
 
     // -------------------------------------------------------------------------
     // Calibration status / validity
@@ -45,43 +45,43 @@ module dsp_core_top #(
     // -------------------------------------------------------------------------
     // Calibration BRAM write buses
     // -------------------------------------------------------------------------
-    input  wire        bg_wr_en,
-    input  wire [0:0]  bg_wr_we,
-    input  wire [9:0]  bg_wr_addr,
-    input  wire [31:0] bg_wr_data,
+    (* mark_debug = "true" *) input  wire        bg_wr_en,
+    (* mark_debug = "true" *) input  wire [0:0]  bg_wr_we,
+    (* mark_debug = "true" *) input  wire [9:0]  bg_wr_addr,
+    (* mark_debug = "true" *) input  wire [31:0] bg_wr_data,
 
-    input  wire        disp_a_wr_en,
-    input  wire [0:0]  disp_a_wr_we,
-    input  wire [9:0]  disp_a_wr_addr,
-    input  wire [31:0] disp_a_wr_data,
+    (* mark_debug = "true" *) input  wire        disp_a_wr_en,
+    (* mark_debug = "true" *) input  wire [0:0]  disp_a_wr_we,
+    (* mark_debug = "true" *) input  wire [9:0]  disp_a_wr_addr,
+    (* mark_debug = "true" *) input  wire [31:0] disp_a_wr_data,
 
-    input  wire        disp_b_wr_en,
-    input  wire [0:0]  disp_b_wr_we,
-    input  wire [9:0]  disp_b_wr_addr,
-    input  wire [31:0] disp_b_wr_data,
+    (* mark_debug = "true" *) input  wire        disp_b_wr_en,
+    (* mark_debug = "true" *) input  wire [0:0]  disp_b_wr_we,
+    (* mark_debug = "true" *) input  wire [9:0]  disp_b_wr_addr,
+    (* mark_debug = "true" *) input  wire [31:0] disp_b_wr_data,
 
-    input  wire        klin_a_wr_en,
-    input  wire [0:0]  klin_a_wr_we,
-    input  wire [9:0]  klin_a_wr_addr,
-    input  wire [31:0] klin_a_wr_data,
+    (* mark_debug = "true" *) input  wire        klin_a_wr_en,
+    (* mark_debug = "true" *) input  wire [0:0]  klin_a_wr_we,
+    (* mark_debug = "true" *) input  wire [9:0]  klin_a_wr_addr,
+    (* mark_debug = "true" *) input  wire [31:0] klin_a_wr_data,
 
-    input  wire        klin_b_wr_en,
-    input  wire [0:0]  klin_b_wr_we,
-    input  wire [9:0]  klin_b_wr_addr,
-    input  wire [31:0] klin_b_wr_data,
+    (* mark_debug = "true" *) input  wire        klin_b_wr_en,
+    (* mark_debug = "true" *) input  wire [0:0]  klin_b_wr_we,
+    (* mark_debug = "true" *) input  wire [9:0]  klin_b_wr_addr,
+    (* mark_debug = "true" *) input  wire [31:0] klin_b_wr_data,
 
     input  wire        klin_c_wr_en,
-    input  wire [0:0]  klin_c_wr_we,
+    (* mark_debug = "true" *) input  wire [0:0]  klin_c_wr_we,
     input  wire [9:0]  klin_c_wr_addr,
     input  wire [31:0] klin_c_wr_data,
 
     input  wire        klin_d_wr_en,
-    input  wire [0:0]  klin_d_wr_we,
+    (* mark_debug = "true" *) input  wire [0:0]  klin_d_wr_we,
     input  wire [9:0]  klin_d_wr_addr,
     input  wire [31:0] klin_d_wr_data,
 
     input  wire        klin_e_wr_en,
-    input  wire [0:0]  klin_e_wr_we,
+    (* mark_debug = "true" *) input  wire [0:0]  klin_e_wr_we,
     input  wire [9:0]  klin_e_wr_addr,
     input  wire [31:0] klin_e_wr_data,
 
@@ -89,7 +89,7 @@ module dsp_core_top #(
     // DSP output stream
     // -------------------------------------------------------------------------
     output reg         out_valid,
-    output reg         out_row_start,
+    (* mark_debug = "true" *) output reg         out_row_start,
     output reg  [31:0] out_data,
 
     // -------------------------------------------------------------------------
@@ -102,9 +102,9 @@ module dsp_core_top #(
     // =========================================================================
     // Stage 1: bg_sub
     // =========================================================================
-    wire [31:0] bgsub_out_str;
-    wire        bgsub_out_valid;
-    wire        bgsub_out_start;
+    (* mark_debug = "true" *) wire [31:0] bgsub_out_str;
+    (* mark_debug = "true" *) wire        bgsub_out_valid;
+    (* mark_debug = "true" *) wire        bgsub_out_start;
 
     bg_sub #(
         .ASCAN_LEN(IN_SAMPLES_PER_ROW),
@@ -130,10 +130,10 @@ module dsp_core_top #(
     // =========================================================================
     // Stage 2: k_lin
     // =========================================================================
-    wire [31:0] klin_out_str;
-    wire        klin_out_valid;
-    wire        klin_out_start;
-    wire        klin_overflow;
+    (* mark_debug = "true" *) wire [31:0] klin_out_str;
+    (* mark_debug = "true" *) wire        klin_out_valid;
+    (* mark_debug = "true" *) wire        klin_out_start;
+    (* mark_debug = "true" *) wire        klin_overflow;
 
     k_lin #(
         .ASCAN_LEN (IN_SAMPLES_PER_ROW),
@@ -179,10 +179,10 @@ module dsp_core_top #(
     // =========================================================================
     // Stage 3: disp_comp
     // =========================================================================
-    wire [31:0] disp_out_re;
-    wire [31:0] disp_out_im;
-    wire        disp_out_valid;
-    wire        disp_out_start;
+    (* mark_debug = "true" *) wire [31:0] disp_out_re;
+    (* mark_debug = "true" *) wire [31:0] disp_out_im;
+    (* mark_debug = "true" *) wire        disp_out_valid;
+    (* mark_debug = "true" *) wire        disp_out_start;
     wire        disp_out_end;
 
     disp_comp #(
@@ -220,10 +220,10 @@ module dsp_core_top #(
     // =========================================================================
     // Stage 4: fft_wrapper
     // =========================================================================
-    wire signed [31:0] fft_out_real;
-    wire signed [31:0] fft_out_imag;
-    wire               fft_out_valid;
-    wire               fft_out_start;
+    (* mark_debug = "true" *) wire signed [31:0] fft_out_real;
+    (* mark_debug = "true" *) wire signed [31:0] fft_out_imag;
+    (* mark_debug = "true" *) wire               fft_out_valid;
+    (* mark_debug = "true" *) wire               fft_out_start;
 
     wire dbg_event_frame_started;
     wire dbg_event_tlast_unexpected;
@@ -262,10 +262,10 @@ module dsp_core_top #(
     // =========================================================================
     // Stage 5: top_select
     // =========================================================================
-    wire signed [31:0] topsel_out_real;
+    (* mark_debug = "true" *) wire signed [31:0] topsel_out_real;
     wire signed [31:0] topsel_out_imag;
-    wire               topsel_out_valid;
-    wire               topsel_out_start;
+    (* mark_debug = "true" *) wire               topsel_out_valid;
+    (* mark_debug = "true" *) wire               topsel_out_start;
 
     top_select #(
         .DATA_W    (32),
@@ -290,9 +290,9 @@ module dsp_core_top #(
     // =========================================================================
     // Stage 6: mag_calc
     // =========================================================================
-    wire [64:0] mag_out;
-    wire        mag_out_valid;
-    wire        mag_out_start;
+    (* mark_debug = "true" *) wire [64:0] mag_out;
+    (* mark_debug = "true" *) wire        mag_out_valid;
+    (* mark_debug = "true" *) wire        mag_out_start;
 
     mag_calc u_mag_calc (
         .clk                (clk),
@@ -311,9 +311,9 @@ module dsp_core_top #(
     // =========================================================================
     // Stage 7: log_compress_map
     // =========================================================================
-    wire       log_pix_valid;
-    wire       log_pix_start;
-    wire [7:0] log_pix_out;
+    (* mark_debug = "true" *) wire       log_pix_valid;
+    (* mark_debug = "true" *) wire       log_pix_start;
+    (* mark_debug = "true" *) wire [7:0] log_pix_out;
 
     log_compress_map #(
         .IN_W          (65),

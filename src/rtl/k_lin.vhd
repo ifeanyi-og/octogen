@@ -217,11 +217,18 @@ architecture rtl of k_lin is
   signal cal_read_addr   : std_logic_vector(ADDR_W-1 downto 0) := (others => '0');
   signal cal_read_enable : std_logic := '0';
 
+  attribute mark_debug : string;
+
   signal base_read_data : std_logic_vector(ADDR_W-1 downto 0);
   signal c0_read_data   : std_logic_vector(COEF_W-1 downto 0);
   signal c1_read_data   : std_logic_vector(COEF_W-1 downto 0);
   signal c2_read_data   : std_logic_vector(COEF_W-1 downto 0);
   signal c3_read_data   : std_logic_vector(COEF_W-1 downto 0);
+  
+  attribute mark_debug of cal_read_enable : signal is "true";
+  attribute mark_debug of base_read_data : signal is "true";
+  attribute mark_debug of c0_read_data : signal is "true";
+  attribute mark_debug of cal_read_addr : signal is "true";
 
   signal cal_base_we_vec : std_logic_vector(0 downto 0);
   signal cal_c0_we_vec   : std_logic_vector(0 downto 0);
