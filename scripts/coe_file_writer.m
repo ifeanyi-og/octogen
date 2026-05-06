@@ -49,7 +49,7 @@ function write_bg_coe(bg, outFile)
 
     fid = fopen(outFile, 'w');
     if fid < 0
-        error('Could not open %s for writing.', outFile);
+        error('Could not open %s for writing vc .', outFile);
     end
 
     fprintf(fid, 'memory_initialization_radix=16;\n');

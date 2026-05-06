@@ -58,6 +58,10 @@ module udp_processing_top (
     output wire        cal_rejected_busy,
     output wire        cal_rejected_mode,
     output wire [7:0]  runtime_valid,
+    output wire [7:0]  pc_valid,
+    output wire [7:0]  in_progress,
+    
+    output wire [7:0]  cal_seen_db,
 
     // -------------------------------------------------------------------------
     // Calibration BRAM write buses upward into dsp_core
@@ -267,6 +271,9 @@ module udp_processing_top (
         .cal_rejected_busy (cal_rejected_busy),
         .cal_rejected_mode (cal_rejected_mode),
         .runtime_valid     (runtime_valid),
+        .pc_valid          (pc_valid),
+        .in_progress       (in_progress),
+        .cal_seen          (cal_seen_db),
 
         .bg_wr_en          (bg_wr_en),
         .bg_wr_we          (bg_wr_we),

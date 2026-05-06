@@ -1,21 +1,26 @@
+
 `timescale 1ns / 1ps
 // =============================================================================
-// dsp_core_top
+// dsp_core
 //
-// Deterministic row-buffered DSP stub with calibration-memory integration shell.
+// Streaming DSP chain:
+//   in -> bg_sub -> k_lin -> disp_comp -> fft_wrapper
+//      -> top_select(first 512 complex bins) -> mag_calc -> log_compress_map
 //
-// Current placeholder DSP behavior:
-// - Accept exactly 1024 real samples for one row
-// - Emit exactly the first 512 samples unchanged
+// External ports intentionally preserved.
 //
-// Calibration integration behavior:
-// - Receives runtime_valid and BRAM write buses from udp_processing_top
-// - Writes BG + k-lin memories through their Port A interfaces
-// - Disp-comp write buses are accepted for interface completeness but ignored
-//   for now, per current development phase
+// Notes:
+// - bg_sub:        real 32-bit in  -> real 32-bit out
+// - k_lin:         real 32-bit in  -> real 32-bit out
+// - disp_comp:     real 32-bit in  -> complex 32-bit out
+// - fft_wrapper:   complex 32-bit in -> complex 32-bit out
+// - top_select:    complex 32-bit in -> complex 32-bit out
+// - mag_calc:      complex 32-bit in -> unsigned 65-bit out
+// - log_map:       65-bit in -> 8-bit pixel out
 //
-// Purpose:
-// - stable integration shell before real DSP stage wiring
+// Final output mapping:
+// - out_data[7:0] = pixel intensity
+// - out_data[31:8] = 0
 // =============================================================================
 
 module dsp_core_top #(
@@ -29,54 +34,54 @@ module dsp_core_top #(
     // DSP input stream
     // -------------------------------------------------------------------------
     input  wire        in_valid,
-    input  wire        in_row_start,
-    input  wire [31:0] in_data,
+    (* mark_debug = "true" *) input  wire        in_row_start,
+    (* mark_debug = "true" *) input  wire [31:0] in_data,
 
     // -------------------------------------------------------------------------
-    // Calibration status / validity from udp_processing_top
+    // Calibration status / validity
     // -------------------------------------------------------------------------
     input  wire [7:0]  runtime_valid,
 
     // -------------------------------------------------------------------------
-    // Calibration BRAM write buses from udp_processing_top / cal_loader
+    // Calibration BRAM write buses
     // -------------------------------------------------------------------------
-    input  wire        bg_wr_en,
-    input  wire [0:0]  bg_wr_we,
-    input  wire [9:0]  bg_wr_addr,
-    input  wire [31:0] bg_wr_data,
+    (* mark_debug = "true" *) input  wire        bg_wr_en,
+    (* mark_debug = "true" *) input  wire [0:0]  bg_wr_we,
+    (* mark_debug = "true" *) input  wire [9:0]  bg_wr_addr,
+    (* mark_debug = "true" *) input  wire [31:0] bg_wr_data,
 
-    input  wire        disp_a_wr_en,
-    input  wire [0:0]  disp_a_wr_we,
-    input  wire [9:0]  disp_a_wr_addr,
-    input  wire [31:0] disp_a_wr_data,
+    (* mark_debug = "true" *) input  wire        disp_a_wr_en,
+    (* mark_debug = "true" *) input  wire [0:0]  disp_a_wr_we,
+    (* mark_debug = "true" *) input  wire [9:0]  disp_a_wr_addr,
+    (* mark_debug = "true" *) input  wire [31:0] disp_a_wr_data,
 
-    input  wire        disp_b_wr_en,
-    input  wire [0:0]  disp_b_wr_we,
-    input  wire [9:0]  disp_b_wr_addr,
-    input  wire [31:0] disp_b_wr_data,
+    (* mark_debug = "true" *) input  wire        disp_b_wr_en,
+    (* mark_debug = "true" *) input  wire [0:0]  disp_b_wr_we,
+    (* mark_debug = "true" *) input  wire [9:0]  disp_b_wr_addr,
+    (* mark_debug = "true" *) input  wire [31:0] disp_b_wr_data,
 
-    input  wire        klin_a_wr_en,
-    input  wire [0:0]  klin_a_wr_we,
-    input  wire [9:0]  klin_a_wr_addr,
-    input  wire [31:0] klin_a_wr_data,
+    (* mark_debug = "true" *) input  wire        klin_a_wr_en,
+    (* mark_debug = "true" *) input  wire [0:0]  klin_a_wr_we,
+    (* mark_debug = "true" *) input  wire [9:0]  klin_a_wr_addr,
+    (* mark_debug = "true" *) input  wire [31:0] klin_a_wr_data,
 
-    input  wire        klin_b_wr_en,
-    input  wire [0:0]  klin_b_wr_we,
-    input  wire [9:0]  klin_b_wr_addr,
-    input  wire [31:0] klin_b_wr_data,
+    (* mark_debug = "true" *) input  wire        klin_b_wr_en,
+    (* mark_debug = "true" *) input  wire [0:0]  klin_b_wr_we,
+    (* mark_debug = "true" *) input  wire [9:0]  klin_b_wr_addr,
+    (* mark_debug = "true" *) input  wire [31:0] klin_b_wr_data,
 
     input  wire        klin_c_wr_en,
-    input  wire [0:0]  klin_c_wr_we,
+    (* mark_debug = "true" *) input  wire [0:0]  klin_c_wr_we,
     input  wire [9:0]  klin_c_wr_addr,
     input  wire [31:0] klin_c_wr_data,
 
     input  wire        klin_d_wr_en,
-    input  wire [0:0]  klin_d_wr_we,
+    (* mark_debug = "true" *) input  wire [0:0]  klin_d_wr_we,
     input  wire [9:0]  klin_d_wr_addr,
     input  wire [31:0] klin_d_wr_data,
 
     input  wire        klin_e_wr_en,
-    input  wire [0:0]  klin_e_wr_we,
+    (* mark_debug = "true" *) input  wire [0:0]  klin_e_wr_we,
     input  wire [9:0]  klin_e_wr_addr,
     input  wire [31:0] klin_e_wr_data,
 
@@ -84,7 +89,7 @@ module dsp_core_top #(
     // DSP output stream
     // -------------------------------------------------------------------------
     output reg         out_valid,
-    output reg         out_row_start,
+    (* mark_debug = "true" *) output reg         out_row_start,
     output reg  [31:0] out_data,
 
     // -------------------------------------------------------------------------
@@ -94,231 +99,314 @@ module dsp_core_top #(
     output reg         row_done
 );
 
-    localparam [1:0]
-        ST_IDLE = 2'd0,
-        ST_FILL = 2'd1,
-        ST_OUT  = 2'd2;
+    // =========================================================================
+    // Stage 1: bg_sub
+    // =========================================================================
+    (* mark_debug = "true" *) wire [31:0] bgsub_out_str;
+    (* mark_debug = "true" *) wire        bgsub_out_valid;
+    (* mark_debug = "true" *) wire        bgsub_out_start;
 
-    reg [1:0] state;
+    bg_sub #(
+        .ASCAN_LEN(IN_SAMPLES_PER_ROW),
+        .ADDR_W   (10)
+    ) u_bg_sub (
+        .clk                (clk),
+        .rst                (rst),
 
-    reg [31:0] row_mem [0:IN_SAMPLES_PER_ROW-1];
+        .str_in             (in_data),
+        .str_in_valid       (in_valid),
+        .start_of_ascan     (in_row_start),
 
-    reg [9:0] in_count;   // 0..1023
-    reg [8:0] out_count;  // 0..511
+        .bg_wr_en           (bg_wr_en),
+        .bg_wr_we           (bg_wr_we),
+        .bg_wr_addr         (bg_wr_addr),
+        .bg_wr_data         (bg_wr_data),
 
-    reg busy_r;
-    assign busy = busy_r;
-
-    // -------------------------------------------------------------------------
-    // Internal read-side tie-offs for calibration memories
-    // Real DSP stages will later consume Port B.
-    // -------------------------------------------------------------------------
-    wire        bg_rd_en_i      = 1'b0;
-    wire [9:0]  bg_rd_addr_i    = 10'd0;
-    wire [31:0] bg_rd_data_i;
-
-    wire        klin_a_rd_en_i  = 1'b0;
-    wire [9:0]  klin_a_rd_addr_i= 10'd0;
-    wire [9:0]  klin_a_rd_data_i;
-
-    wire        klin_b_rd_en_i  = 1'b0;
-    wire [9:0]  klin_b_rd_addr_i= 10'd0;
-    wire [17:0] klin_b_rd_data_i;
-
-    wire        klin_c_rd_en_i  = 1'b0;
-    wire [9:0]  klin_c_rd_addr_i= 10'd0;
-    wire [17:0] klin_c_rd_data_i;
-
-    wire        klin_d_rd_en_i  = 1'b0;
-    wire [9:0]  klin_d_rd_addr_i= 10'd0;
-    wire [17:0] klin_d_rd_data_i;
-
-    wire        klin_e_rd_en_i  = 1'b0;
-    wire [9:0]  klin_e_rd_addr_i= 10'd0;
-    wire [17:0] klin_e_rd_data_i;
-
-    // -------------------------------------------------------------------------
-    // Calibration memories
-    // -------------------------------------------------------------------------
-    bgsub_blk_mem_gen u_bg (
-        .clka  (clk),
-        .ena   (bg_wr_en),
-        .wea   (bg_wr_we),
-        .addra (bg_wr_addr),
-        .dina  (bg_wr_data),
-        .clkb  (clk),
-        .enb   (bg_rd_en_i),
-        .addrb (bg_rd_addr_i),
-        .doutb (bg_rd_data_i)
+        .str_out            (bgsub_out_str),
+        .str_out_valid      (bgsub_out_valid),
+        .start_of_ascan_out (bgsub_out_start)
     );
 
-    klin_base_rom u_klin_a (
-        .clka  (clk),
-        .ena   (klin_a_wr_en),
-        .wea   (klin_a_wr_we),
-        .addra (klin_a_wr_addr),
-        .dina  (klin_a_wr_data[9:0]),
-        .clkb  (clk),
-        .enb   (klin_a_rd_en_i),
-        .addrb (klin_a_rd_addr_i),
-        .doutb (klin_a_rd_data_i)
+    // =========================================================================
+    // Stage 2: k_lin
+    // =========================================================================
+    (* mark_debug = "true" *) wire [31:0] klin_out_str;
+    (* mark_debug = "true" *) wire        klin_out_valid;
+    (* mark_debug = "true" *) wire        klin_out_start;
+    (* mark_debug = "true" *) wire        klin_overflow;
+
+    k_lin #(
+        .ASCAN_LEN (IN_SAMPLES_PER_ROW),
+        .ADDR_W    (10),
+        .COEF_W    (18),
+        .FRAC_BITS (16),
+        .COEF_LAT  (2),
+        .SAMP_LAT  (2)
+    ) u_k_lin (
+        .clk                 (clk),
+        .rst                 (rst),
+
+        .str_in              (bgsub_out_str),
+        .str_in_valid        (bgsub_out_valid),
+        .start_of_ascan      (bgsub_out_start),
+
+        .str_out             (klin_out_str),
+        .str_out_valid       (klin_out_valid),
+        .start_of_ascan_out  (klin_out_start),
+
+        // Assumption: runtime_valid[1] corresponds to k-lin calibration readiness
+        .cal_ready           (1'b1),
+        .cal_write_addr      (klin_a_wr_addr),
+
+        .cal_base_write_en   (klin_a_wr_en & klin_a_wr_we[0]),
+        .cal_base_write_data (klin_a_wr_data[9:0]),
+
+        .cal_c0_write_en     (klin_b_wr_en & klin_b_wr_we[0]),
+        .cal_c0_write_data   (klin_b_wr_data[17:0]),
+
+        .cal_c1_write_en     (klin_c_wr_en & klin_c_wr_we[0]),
+        .cal_c1_write_data   (klin_c_wr_data[17:0]),
+
+        .cal_c2_write_en     (klin_d_wr_en & klin_d_wr_we[0]),
+        .cal_c2_write_data   (klin_d_wr_data[17:0]),
+
+        .cal_c3_write_en     (klin_e_wr_en & klin_e_wr_we[0]),
+        .cal_c3_write_data   (klin_e_wr_data[17:0]),
+
+        .overflow            (klin_overflow)
     );
 
-    klin_c0_rom u_klin_b (
-        .clka  (clk),
-        .ena   (klin_b_wr_en),
-        .wea   (klin_b_wr_we),
-        .addra (klin_b_wr_addr),
-        .dina  (klin_b_wr_data[17:0]),
-        .clkb  (clk),
-        .enb   (klin_b_rd_en_i),
-        .addrb (klin_b_rd_addr_i),
-        .doutb (klin_b_rd_data_i)
+    // =========================================================================
+    // Stage 3: disp_comp
+    // =========================================================================
+    (* mark_debug = "true" *) wire [31:0] disp_out_re;
+    (* mark_debug = "true" *) wire [31:0] disp_out_im;
+    (* mark_debug = "true" *) wire        disp_out_valid;
+    (* mark_debug = "true" *) wire        disp_out_start;
+    wire        disp_out_end;
+
+    disp_comp #(
+        .ASCAN_LEN (IN_SAMPLES_PER_ROW),
+        .ADDR_W    (10),
+        .IN_W      (32),
+        .X_W       (24),
+        .LUT_W     (18),
+        .LUT_FRAC  (17),
+        .SHIFT_IN  (8),
+        .RAM_LAT   (1)
+    ) u_disp_comp (
+        .clk                (clk),
+        .rst                (rst),
+
+        .in_x               (klin_out_str),
+        .in_valid           (klin_out_valid),
+        .start_of_ascan     (klin_out_start),
+
+        .lut_cos_wr_en   (disp_a_wr_en & disp_a_wr_we[0]),
+        .lut_cos_wr_addr (disp_a_wr_addr),
+        .lut_cos_din     (disp_a_wr_data[17:0]),
+        
+        .lut_sin_wr_en   (disp_b_wr_en & disp_b_wr_we[0]),
+        .lut_sin_wr_addr (disp_b_wr_addr),
+        .lut_sin_din     (disp_b_wr_data[17:0]),
+
+        .out_re             (disp_out_re),
+        .out_im             (disp_out_im),
+        .out_valid          (disp_out_valid),
+        .start_of_ascan_out (disp_out_start),
+        .end_of_ascan_out   (disp_out_end)
     );
 
-    klin_c1_rom u_klin_c (
-        .clka  (clk),
-        .ena   (klin_c_wr_en),
-        .wea   (klin_c_wr_we),
-        .addra (klin_c_wr_addr),
-        .dina  (klin_c_wr_data[17:0]),
-        .clkb  (clk),
-        .enb   (klin_c_rd_en_i),
-        .addrb (klin_c_rd_addr_i),
-        .doutb (klin_c_rd_data_i)
+    // =========================================================================
+    // Stage 4: fft_wrapper
+    // =========================================================================
+    (* mark_debug = "true" *) wire signed [31:0] fft_out_real;
+    (* mark_debug = "true" *) wire signed [31:0] fft_out_imag;
+    (* mark_debug = "true" *) wire               fft_out_valid;
+    (* mark_debug = "true" *) wire               fft_out_start;
+
+    wire dbg_event_frame_started;
+    wire dbg_event_tlast_unexpected;
+    wire dbg_event_tlast_missing;
+    wire dbg_event_status_channel_halt;
+    wire dbg_event_data_in_channel_halt;
+    wire dbg_event_data_out_channel_halt;
+    wire dbg_cfg_done;
+    wire dbg_input_backpressure_violation;
+
+    fft_wrapper u_fft_wrapper (
+        .clk                             (clk),
+        .rst                             (rst),
+
+        .in_real                         ($signed(disp_out_re)),
+        .in_imag                         ($signed(disp_out_im)),
+        .in_valid                        (disp_out_valid),
+        .start_of_ascan                  (disp_out_start),
+        .end_of_ascan                    (disp_out_end),
+
+        .out_real                        (fft_out_real),
+        .out_imag                        (fft_out_imag),
+        .out_valid                       (fft_out_valid),
+        .start_of_ascan_out              (fft_out_start),
+
+        .dbg_event_frame_started         (dbg_event_frame_started),
+        .dbg_event_tlast_unexpected      (dbg_event_tlast_unexpected),
+        .dbg_event_tlast_missing         (dbg_event_tlast_missing),
+        .dbg_event_status_channel_halt   (dbg_event_status_channel_halt),
+        .dbg_event_data_in_channel_halt  (dbg_event_data_in_channel_halt),
+        .dbg_event_data_out_channel_halt (dbg_event_data_out_channel_halt),
+        .dbg_cfg_done                    (dbg_cfg_done),
+        .dbg_input_backpressure_violation(dbg_input_backpressure_violation)
     );
 
-    klin_c2_rom u_klin_d (
-        .clka  (clk),
-        .ena   (klin_d_wr_en),
-        .wea   (klin_d_wr_we),
-        .addra (klin_d_wr_addr),
-        .dina  (klin_d_wr_data[17:0]),
-        .clkb  (clk),
-        .enb   (klin_d_rd_en_i),
-        .addrb (klin_d_rd_addr_i),
-        .doutb (klin_d_rd_data_i)
+    // =========================================================================
+    // Stage 5: top_select
+    // =========================================================================
+    (* mark_debug = "true" *) wire signed [31:0] topsel_out_real;
+    wire signed [31:0] topsel_out_imag;
+    (* mark_debug = "true" *) wire               topsel_out_valid;
+    (* mark_debug = "true" *) wire               topsel_out_start;
+
+    top_select #(
+        .DATA_W    (32),
+        .ASCAN_LEN (IN_SAMPLES_PER_ROW),
+        .KEEP_LEN  (OUT_SAMPLES_PER_ROW),
+        .COUNT_W   (10)
+    ) u_top_select (
+        .clk                (clk),
+        .rst                (rst),
+
+        .re_in              (fft_out_real),
+        .im_in              (fft_out_imag),
+        .in_valid           (fft_out_valid),
+        .start_of_ascan     (fft_out_start),
+
+        .re_out             (topsel_out_real),
+        .im_out             (topsel_out_imag),
+        .out_valid          (topsel_out_valid),
+        .start_of_ascan_out (topsel_out_start)
     );
 
-    klin_c3_rom u_klin_e (
-        .clka  (clk),
-        .ena   (klin_e_wr_en),
-        .wea   (klin_e_wr_we),
-        .addra (klin_e_wr_addr),
-        .dina  (klin_e_wr_data[17:0]),
-        .clkb  (clk),
-        .enb   (klin_e_rd_en_i),
-        .addrb (klin_e_rd_addr_i),
-        .doutb (klin_e_rd_data_i)
+    // =========================================================================
+    // Stage 6: mag_calc
+    // =========================================================================
+    (* mark_debug = "true" *) wire [64:0] mag_out;
+    (* mark_debug = "true" *) wire        mag_out_valid;
+    (* mark_debug = "true" *) wire        mag_out_start;
+
+    mag_calc u_mag_calc (
+        .clk                (clk),
+        .rst                (rst),
+
+        .re_in              (topsel_out_real),
+        .im_in              (topsel_out_imag),
+        .in_valid           (topsel_out_valid),
+        .start_of_ascan     (topsel_out_start),
+
+        .mag_sq_out         (mag_out),
+        .out_valid          (mag_out_valid),
+        .start_of_ascan_out (mag_out_start)
     );
 
-`ifndef SYNTHESIS
-    // -------------------------------------------------------------------------
-    // Simulation-only shadow memories for easy TB checking of calibration writes
-    // -------------------------------------------------------------------------
-    reg [31:0] bg_shadow     [0:1023];
-    reg [9:0]  klin_a_shadow [0:1023];
-    reg [17:0] klin_b_shadow [0:1023];
-    reg [17:0] klin_c_shadow [0:1023];
-    reg [17:0] klin_d_shadow [0:1023];
-    reg [17:0] klin_e_shadow [0:1023];
+    // =========================================================================
+    // Stage 7: log_compress_map
+    // =========================================================================
+    (* mark_debug = "true" *) wire       log_pix_valid;
+    (* mark_debug = "true" *) wire       log_pix_start;
+    (* mark_debug = "true" *) wire [7:0] log_pix_out;
 
-    integer si;
+    log_compress_map #(
+        .IN_W          (65),
+        .SEG_BITS      (6),
+        .FRAC_BITS     (6),
+        .LUT_W         (18),
+        .MAP_FLOOR_Q   (131072),
+        .MAP_GAIN_Q    (1024),
+        .MAP_GAIN_FRAC (8),
+        .GAIN_W        (16)
+    ) u_log_compress_map (
+        .clk                (clk),
+        .rst                (rst),
+
+        .in_valid           (mag_out_valid),
+        .start_of_ascan     (mag_out_start),
+        .mag2_in            (mag_out),
+
+        .pix_valid          (log_pix_valid),
+        .start_of_ascan_out (log_pix_start),
+        .pix_out            (log_pix_out)
+    );
+
+    // =========================================================================
+    // Final output mapping
+    // =========================================================================
+    always @(*) begin
+        out_valid     = log_pix_valid;
+        out_row_start = log_pix_start;
+        out_data      = {24'd0, log_pix_out};
+    end
+
+    // =========================================================================
+    // busy: asserted from row ingress until final output row completion
+    // =========================================================================
+    reg row_active_in;
+    reg [9:0] in_count;
+
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            for (si = 0; si < 1024; si = si + 1) begin
-                bg_shadow[si]     <= 32'd0;
-                klin_a_shadow[si] <= 10'd0;
-                klin_b_shadow[si] <= 18'd0;
-                klin_c_shadow[si] <= 18'd0;
-                klin_d_shadow[si] <= 18'd0;
-                klin_e_shadow[si] <= 18'd0;
-            end
+            row_active_in <= 1'b0;
+            in_count      <= 10'd0;
         end else begin
-            if (bg_wr_en     && bg_wr_we[0])     bg_shadow[bg_wr_addr]         <= bg_wr_data;
-            if (klin_a_wr_en && klin_a_wr_we[0]) klin_a_shadow[klin_a_wr_addr] <= klin_a_wr_data[9:0];
-            if (klin_b_wr_en && klin_b_wr_we[0]) klin_b_shadow[klin_b_wr_addr] <= klin_b_wr_data[17:0];
-            if (klin_c_wr_en && klin_c_wr_we[0]) klin_c_shadow[klin_c_wr_addr] <= klin_c_wr_data[17:0];
-            if (klin_d_wr_en && klin_d_wr_we[0]) klin_d_shadow[klin_d_wr_addr] <= klin_d_wr_data[17:0];
-            if (klin_e_wr_en && klin_e_wr_we[0]) klin_e_shadow[klin_e_wr_addr] <= klin_e_wr_data[17:0];
+            if (!row_active_in) begin
+                if (in_valid && in_row_start) begin
+                    row_active_in <= 1'b1;
+                    in_count      <= 10'd1;
+                end
+            end else if (in_valid) begin
+                if (in_count == IN_SAMPLES_PER_ROW-1)
+                    in_count <= 10'd0;
+                else
+                    in_count <= in_count + 10'd1;
+            end
+
+            if (row_done)
+                row_active_in <= 1'b0;
         end
     end
-`endif
 
-    // -------------------------------------------------------------------------
-    // Current DSP shell
-    // runtime_valid is intentionally not used yet; later stages will consult it.
-    // -------------------------------------------------------------------------
-    integer i;
+    assign busy = row_active_in;
+
+    // =========================================================================
+    // row_done: pulse on final emitted output pixel of the kept 512-bin stream
+    // =========================================================================
+    reg [8:0] out_count;
+
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            state         <= ST_IDLE;
-            in_count      <= 10'd0;
-            out_count     <= 9'd0;
-            out_valid     <= 1'b0;
-            out_row_start <= 1'b0;
-            out_data      <= 32'd0;
-            row_done      <= 1'b0;
-            busy_r        <= 1'b0;
-
-            for (i = 0; i < IN_SAMPLES_PER_ROW; i = i + 1)
-                row_mem[i] <= 32'd0;
-
+            out_count <= 9'd0;
+            row_done  <= 1'b0;
         end else begin
-            out_valid     <= 1'b0;
-            out_row_start <= 1'b0;
-            row_done      <= 1'b0;
+            row_done <= 1'b0;
 
-            case (state)
-                ST_IDLE: begin
-                    in_count  <= 10'd0;
-                    out_count <= 9'd0;
-                    busy_r    <= 1'b0;
-
-                    if (in_valid && in_row_start) begin
-                        row_mem[0] <= in_data;
-                        in_count   <= 10'd1;
-                        busy_r     <= 1'b1;
-                        state      <= ST_FILL;
+            if (log_pix_valid) begin
+                if (log_pix_start) begin
+                    if (OUT_SAMPLES_PER_ROW == 1) begin
+                        out_count <= 9'd0;
+                        row_done  <= 1'b1;
+                    end else begin
+                        out_count <= 9'd1;
                     end
-                end
-
-                ST_FILL: begin
-                    busy_r <= 1'b1;
-
-                    if (in_valid) begin
-                        row_mem[in_count] <= in_data;
-
-                        if (in_count == IN_SAMPLES_PER_ROW-1) begin
-                            out_count <= 9'd0;
-                            state     <= ST_OUT;
-                        end else begin
-                            in_count <= in_count + 10'd1;
-                        end
-                    end
-                end
-
-                ST_OUT: begin
-                    busy_r        <= 1'b1;
-                    out_valid     <= 1'b1;
-                    out_row_start <= (out_count == 9'd0);
-                    out_data      <= row_mem[out_count];
-                    row_done      <= (out_count == OUT_SAMPLES_PER_ROW-1);
-
+                end else begin
                     if (out_count == OUT_SAMPLES_PER_ROW-1) begin
-                        state    <= ST_IDLE;
-                        busy_r   <= 1'b0;
-                        in_count <= 10'd0;
+                        out_count <= 9'd0;
+                        row_done  <= 1'b1;
                     end else begin
                         out_count <= out_count + 9'd1;
                     end
                 end
-
-                default: begin
-                    state <= ST_IDLE;
-                end
-            endcase
+            end
         end
     end
 
 endmodule
+

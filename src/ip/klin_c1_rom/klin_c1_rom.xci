@@ -14,7 +14,7 @@
         "Use_AXI_ID": [ { "value": "false", "resolve_type": "user", "format": "bool", "enabled": false, "usage": "all" } ],
         "AXI_ID_Width": [ { "value": "4", "resolve_type": "user", "format": "long", "enabled": false, "usage": "all" } ],
         "Memory_Type": [ { "value": "Simple_Dual_Port_RAM", "value_src": "user", "resolve_type": "user", "usage": "all" } ],
-        "PRIM_type_to_Implement": [ { "value": "BRAM", "resolve_type": "user", "usage": "all" } ],
+        "PRIM_type_to_Implement": [ { "value": "BRAM", "resolve_type": "user", "enabled": false, "usage": "all" } ],
         "Enable_32bit_Address": [ { "value": "false", "resolve_type": "user", "format": "bool", "usage": "all" } ],
         "ecctype": [ { "value": "No_ECC", "resolve_type": "user", "usage": "all" } ],
         "ECC": [ { "value": "false", "resolve_type": "user", "format": "bool", "usage": "all" } ],
@@ -35,16 +35,16 @@
         "Write_Width_A": [ { "value": "18", "value_src": "user", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "Write_Depth_A": [ { "value": "1024", "value_src": "user", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "Read_Width_A": [ { "value": "18", "resolve_type": "user", "enabled": false, "usage": "all" } ],
-        "Operating_Mode_A": [ { "value": "NO_CHANGE", "resolve_type": "user", "usage": "all" } ],
+        "Operating_Mode_A": [ { "value": "NO_CHANGE", "value_src": "user", "resolve_type": "user", "usage": "all" } ],
         "Enable_A": [ { "value": "Use_ENA_Pin", "resolve_type": "user", "usage": "all" } ],
-        "Write_Width_B": [ { "value": "18", "resolve_type": "user", "usage": "all" } ],
-        "Read_Width_B": [ { "value": "18", "resolve_type": "user", "usage": "all" } ],
+        "Write_Width_B": [ { "value": "18", "value_src": "user", "resolve_type": "user", "usage": "all" } ],
+        "Read_Width_B": [ { "value": "18", "value_src": "user", "resolve_type": "user", "usage": "all" } ],
         "Operating_Mode_B": [ { "value": "WRITE_FIRST", "resolve_type": "user", "enabled": false, "usage": "all" } ],
-        "Enable_B": [ { "value": "Use_ENB_Pin", "resolve_type": "user", "usage": "all" } ],
+        "Enable_B": [ { "value": "Use_ENB_Pin", "value_src": "user", "resolve_type": "user", "usage": "all" } ],
         "Register_PortA_Output_of_Memory_Primitives": [ { "value": "false", "resolve_type": "user", "format": "bool", "enabled": false, "usage": "all" } ],
         "Register_PortA_Output_of_Memory_Core": [ { "value": "false", "resolve_type": "user", "format": "bool", "enabled": false, "usage": "all" } ],
         "Use_REGCEA_Pin": [ { "value": "false", "resolve_type": "user", "format": "bool", "enabled": false, "usage": "all" } ],
-        "Register_PortB_Output_of_Memory_Primitives": [ { "value": "true", "resolve_type": "user", "format": "bool", "usage": "all" } ],
+        "Register_PortB_Output_of_Memory_Primitives": [ { "value": "true", "value_src": "user", "resolve_type": "user", "format": "bool", "usage": "all" } ],
         "Register_PortB_Output_of_Memory_Core": [ { "value": "false", "resolve_type": "user", "format": "bool", "usage": "all" } ],
         "Use_REGCEB_Pin": [ { "value": "false", "resolve_type": "user", "format": "bool", "usage": "all" } ],
         "register_porta_input_of_softecc": [ { "value": "false", "resolve_type": "user", "format": "bool", "enabled": false, "usage": "all" } ],
@@ -66,10 +66,10 @@
         "Additional_Inputs_for_Power_Estimation": [ { "value": "false", "resolve_type": "user", "format": "bool", "usage": "all" } ],
         "Port_A_Clock": [ { "value": "100", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "Port_A_Write_Rate": [ { "value": "50", "resolve_type": "user", "format": "long", "usage": "all" } ],
-        "Port_B_Clock": [ { "value": "100", "resolve_type": "user", "format": "long", "usage": "all" } ],
+        "Port_B_Clock": [ { "value": "100", "value_src": "user", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "Port_B_Write_Rate": [ { "value": "0", "resolve_type": "user", "format": "long", "enabled": false, "usage": "all" } ],
         "Port_A_Enable_Rate": [ { "value": "100", "resolve_type": "user", "format": "long", "usage": "all" } ],
-        "Port_B_Enable_Rate": [ { "value": "100", "resolve_type": "user", "format": "long", "usage": "all" } ],
+        "Port_B_Enable_Rate": [ { "value": "100", "value_src": "user", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "Collision_Warnings": [ { "value": "ALL", "resolve_type": "user", "usage": "all" } ],
         "Disable_Collision_Warnings": [ { "value": "false", "resolve_type": "user", "format": "bool", "usage": "all" } ],
         "Disable_Out_of_Range_Warnings": [ { "value": "false", "resolve_type": "user", "format": "bool", "usage": "all" } ],
@@ -245,12 +245,12 @@
           "mode": "slave",
           "parameters": {
             "MEM_ADDRESS_MODE": [ { "value": "BYTE_ADDRESS", "resolve_type": "user", "usage": "all" } ],
-            "MEM_SIZE": [ { "value": "8192", "resolve_type": "generated", "format": "long", "is_static_object": false } ],
-            "MEM_WIDTH": [ { "value": "32", "resolve_type": "generated", "format": "long", "is_static_object": false } ],
-            "MEM_ECC": [ { "value": "NONE", "resolve_type": "generated", "is_static_object": false } ],
-            "MASTER_TYPE": [ { "value": "OTHER", "resolve_type": "generated", "is_static_object": false } ],
-            "READ_WRITE_MODE": [ { "value": "", "resolve_type": "generated", "is_static_object": false } ],
-            "READ_LATENCY": [ { "value": "1", "resolve_type": "generated", "format": "long", "is_static_object": false } ]
+            "MEM_SIZE": [ { "value": "8192", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
+            "MEM_WIDTH": [ { "value": "32", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
+            "MEM_ECC": [ { "value": "NONE", "resolve_type": "generated", "is_ips_inferred": true, "is_static_object": false } ],
+            "MASTER_TYPE": [ { "value": "OTHER", "resolve_type": "generated", "is_ips_inferred": true, "is_static_object": false } ],
+            "READ_WRITE_MODE": [ { "value": "", "resolve_type": "generated", "is_ips_inferred": true, "is_static_object": false } ],
+            "READ_LATENCY": [ { "value": "1", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ]
           },
           "port_maps": {
             "ADDR": [ { "physical_name": "addrb" } ],
@@ -278,5 +278,5 @@
       }
     }
   },
-  "checksum": "3e7ce244"
+  "checksum": "284c574f"
 }

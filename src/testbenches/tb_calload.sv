@@ -1,4 +1,978 @@
+`timescale 1ns/1ps
 
+module tb_calibration_loader;
+
+    logic clk = 0;
+    logic rst = 1;
+    always #5 clk = ~clk;
+
+    // ------------------------------------------------------------
+    // DUT inputs
+    // ------------------------------------------------------------
+    logic        hdr_valid;
+    logic        pkt_is_cal;
+    logic [7:0]  pkt_msg_type;
+    logic [1:0]  batch_id;
+    logic [9:0]  row_id;
+    logic        sample_valid;
+    logic [31:0] sample_data;
+    logic        sample_last;
+    logic        batch_valid;
+    logic        allow_cal;
+    logic        dsp_busy;
+
+    // ------------------------------------------------------------
+    // DUT outputs
+    // ------------------------------------------------------------
+    logic        cal_loading;
+    logic        cal_done_pulse;
+    logic        cal_error;
+    logic        cal_rejected_busy;
+    logic        cal_rejected_mode;
+
+    logic [7:0]  runtime_valid;
+    logic [7:0]  pc_valid;
+    logic [7:0]  in_progress;
+
+    logic        bg_wr_en;
+    logic [0:0]  bg_wr_we;
+    logic [9:0]  bg_wr_addr;
+    logic [31:0] bg_wr_data;
+
+    logic        disp_a_wr_en;
+    logic [0:0]  disp_a_wr_we;
+    logic [9:0]  disp_a_wr_addr;
+    logic [31:0] disp_a_wr_data;
+
+    logic        disp_b_wr_en;
+    logic [0:0]  disp_b_wr_we;
+    logic [9:0]  disp_b_wr_addr;
+    logic [31:0] disp_b_wr_data;
+
+    logic        klin_a_wr_en;
+    logic [0:0]  klin_a_wr_we;
+    logic [9:0]  klin_a_wr_addr;
+    logic [31:0] klin_a_wr_data;
+
+    logic        klin_b_wr_en;
+    logic [0:0]  klin_b_wr_we;
+    logic [9:0]  klin_b_wr_addr;
+    logic [31:0] klin_b_wr_data;
+
+    logic        klin_c_wr_en;
+    logic [0:0]  klin_c_wr_we;
+    logic [9:0]  klin_c_wr_addr;
+    logic [31:0] klin_c_wr_data;
+
+    logic        klin_d_wr_en;
+    logic [0:0]  klin_d_wr_we;
+    logic [9:0]  klin_d_wr_addr;
+    logic [31:0] klin_d_wr_data;
+
+    logic        klin_e_wr_en;
+    logic [0:0]  klin_e_wr_we;
+    logic [9:0]  klin_e_wr_addr;
+    logic [31:0] klin_e_wr_data;
+
+    // ------------------------------------------------------------
+    // Readback ports
+    // ------------------------------------------------------------
+    logic        bg_rd_en;
+    logic [9:0]  bg_rd_addr;
+    logic [31:0] bg_rd_data;
+
+    logic        klin_a_rd_en;
+    logic [9:0]  klin_a_rd_addr;
+    logic [9:0]  klin_a_rd_data;
+
+    logic        klin_b_rd_en;
+    logic [9:0]  klin_b_rd_addr;
+    logic [17:0] klin_b_rd_data;
+
+    logic        klin_c_rd_en;
+    logic [9:0]  klin_c_rd_addr;
+    logic [17:0] klin_c_rd_data;
+
+    logic        klin_d_rd_en;
+    logic [9:0]  klin_d_rd_addr;
+    logic [17:0] klin_d_rd_data;
+
+    logic        klin_e_rd_en;
+    logic [9:0]  klin_e_rd_addr;
+    logic [17:0] klin_e_rd_data;
+
+    // ------------------------------------------------------------
+    // Event latches / counters
+    // ------------------------------------------------------------
+    logic clear_event_latches;
+    logic saw_cal_error;
+    logic saw_done_pulse;
+
+    int bg_write_count_seen;
+    int klin_a_write_count_seen;
+    int klin_b_write_count_seen;
+    int klin_c_write_count_seen;
+    int klin_d_write_count_seen;
+    int klin_e_write_count_seen;
+
+    // ------------------------------------------------------------
+    // Scoreboard
+    // ------------------------------------------------------------
+    int pass = 0;
+    int fail = 0;
+
+    localparam [9:0] RID_BG      = 10'd0;
+    localparam [9:0] RID_DISP_A  = 10'd20;
+    localparam [9:0] RID_DISP_B  = 10'd21;
+    localparam [9:0] RID_KLIN_A  = 10'd24;
+    localparam [9:0] RID_KLIN_B  = 10'd25;
+    localparam [9:0] RID_KLIN_C  = 10'd26;
+    localparam [9:0] RID_KLIN_D  = 10'd27;
+    localparam [9:0] RID_KLIN_E  = 10'd28;
+
+    localparam int IDX_BG        = 0;
+    localparam int IDX_DISP_A    = 1;
+    localparam int IDX_DISP_B    = 2;
+    localparam int IDX_KLIN_A    = 3;
+    localparam int IDX_KLIN_B    = 4;
+    localparam int IDX_KLIN_C    = 5;
+    localparam int IDX_KLIN_D    = 6;
+    localparam int IDX_KLIN_E    = 7;
+
+    // Match the DUT parameter you intend to use.
+    localparam [7:0] EXPECT_INIT_RUNTIME_VALID = 8'hFF;
+
+    // ------------------------------------------------------------
+    // DUT
+    // ------------------------------------------------------------
+    calibration_loader #(
+        .INIT_RUNTIME_VALID(EXPECT_INIT_RUNTIME_VALID)
+    ) dut (
+        .clk(clk),
+        .rst(rst),
+
+        .hdr_valid(hdr_valid),
+        .pkt_is_cal(pkt_is_cal),
+        .pkt_msg_type(pkt_msg_type),
+        .batch_id(batch_id),
+        .row_id(row_id),
+
+        .sample_valid(sample_valid),
+        .sample_data(sample_data),
+        .sample_last(sample_last),
+        .batch_valid(batch_valid),
+
+        .allow_cal(allow_cal),
+        .dsp_busy(dsp_busy),
+
+        .cal_loading(cal_loading),
+        .cal_done_pulse(cal_done_pulse),
+        .cal_error(cal_error),
+        .cal_rejected_busy(cal_rejected_busy),
+        .cal_rejected_mode(cal_rejected_mode),
+
+        .runtime_valid(runtime_valid),
+        .pc_valid(pc_valid),
+        .in_progress(in_progress),
+
+        .cal_seen(), // ignored intentionally
+
+        .bg_wr_en(bg_wr_en),
+        .bg_wr_we(bg_wr_we),
+        .bg_wr_addr(bg_wr_addr),
+        .bg_wr_data(bg_wr_data),
+
+        .disp_a_wr_en(disp_a_wr_en),
+        .disp_a_wr_we(disp_a_wr_we),
+        .disp_a_wr_addr(disp_a_wr_addr),
+        .disp_a_wr_data(disp_a_wr_data),
+
+        .disp_b_wr_en(disp_b_wr_en),
+        .disp_b_wr_we(disp_b_wr_we),
+        .disp_b_wr_addr(disp_b_wr_addr),
+        .disp_b_wr_data(disp_b_wr_data),
+
+        .klin_a_wr_en(klin_a_wr_en),
+        .klin_a_wr_we(klin_a_wr_we),
+        .klin_a_wr_addr(klin_a_wr_addr),
+        .klin_a_wr_data(klin_a_wr_data),
+
+        .klin_b_wr_en(klin_b_wr_en),
+        .klin_b_wr_we(klin_b_wr_we),
+        .klin_b_wr_addr(klin_b_wr_addr),
+        .klin_b_wr_data(klin_b_wr_data),
+
+        .klin_c_wr_en(klin_c_wr_en),
+        .klin_c_wr_we(klin_c_wr_we),
+        .klin_c_wr_addr(klin_c_wr_addr),
+        .klin_c_wr_data(klin_c_wr_data),
+
+        .klin_d_wr_en(klin_d_wr_en),
+        .klin_d_wr_we(klin_d_wr_we),
+        .klin_d_wr_addr(klin_d_wr_addr),
+        .klin_d_wr_data(klin_d_wr_data),
+
+        .klin_e_wr_en(klin_e_wr_en),
+        .klin_e_wr_we(klin_e_wr_we),
+        .klin_e_wr_addr(klin_e_wr_addr),
+        .klin_e_wr_data(klin_e_wr_data)
+    );
+
+    // ------------------------------------------------------------
+    // Memory models / BRAMs
+    // ------------------------------------------------------------
+    bgsub_blk_mem_gen u_bg (
+        .clka(clk),
+        .ena(bg_wr_en),
+        .wea(bg_wr_we),
+        .addra(bg_wr_addr),
+        .dina(bg_wr_data),
+        .clkb(clk),
+        .enb(bg_rd_en),
+        .addrb(bg_rd_addr),
+        .doutb(bg_rd_data)
+    );
+
+    klin_base_rom u_klin_a (
+        .clka(clk),
+        .ena(klin_a_wr_en),
+        .wea(klin_a_wr_we),
+        .addra(klin_a_wr_addr),
+        .dina(klin_a_wr_data[9:0]),
+        .clkb(clk),
+        .enb(klin_a_rd_en),
+        .addrb(klin_a_rd_addr),
+        .doutb(klin_a_rd_data)
+    );
+
+    klin_c0_rom u_klin_b (
+        .clka(clk),
+        .ena(klin_b_wr_en),
+        .wea(klin_b_wr_we),
+        .addra(klin_b_wr_addr),
+        .dina(klin_b_wr_data[17:0]),
+        .clkb(clk),
+        .enb(klin_b_rd_en),
+        .addrb(klin_b_rd_addr),
+        .doutb(klin_b_rd_data)
+    );
+
+    klin_c1_rom u_klin_c (
+        .clka(clk),
+        .ena(klin_c_wr_en),
+        .wea(klin_c_wr_we),
+        .addra(klin_c_wr_addr),
+        .dina(klin_c_wr_data[17:0]),
+        .clkb(clk),
+        .enb(klin_c_rd_en),
+        .addrb(klin_c_rd_addr),
+        .doutb(klin_c_rd_data)
+    );
+
+    klin_c2_rom u_klin_d (
+        .clka(clk),
+        .ena(klin_d_wr_en),
+        .wea(klin_d_wr_we),
+        .addra(klin_d_wr_addr),
+        .dina(klin_d_wr_data[17:0]),
+        .clkb(clk),
+        .enb(klin_d_rd_en),
+        .addrb(klin_d_rd_addr),
+        .doutb(klin_d_rd_data)
+    );
+
+    klin_c3_rom u_klin_e (
+        .clka(clk),
+        .ena(klin_e_wr_en),
+        .wea(klin_e_wr_we),
+        .addra(klin_e_wr_addr),
+        .dina(klin_e_wr_data[17:0]),
+        .clkb(clk),
+        .enb(klin_e_rd_en),
+        .addrb(klin_e_rd_addr),
+        .doutb(klin_e_rd_data)
+    );
+
+    // ------------------------------------------------------------
+    // Event capture
+    // ------------------------------------------------------------
+    always_ff @(posedge clk or posedge rst) begin
+        if (rst) begin
+            saw_cal_error           <= 1'b0;
+            saw_done_pulse          <= 1'b0;
+            bg_write_count_seen     <= 0;
+            klin_a_write_count_seen <= 0;
+            klin_b_write_count_seen <= 0;
+            klin_c_write_count_seen <= 0;
+            klin_d_write_count_seen <= 0;
+            klin_e_write_count_seen <= 0;
+        end else if (clear_event_latches) begin
+            saw_cal_error           <= 1'b0;
+            saw_done_pulse          <= 1'b0;
+            bg_write_count_seen     <= 0;
+            klin_a_write_count_seen <= 0;
+            klin_b_write_count_seen <= 0;
+            klin_c_write_count_seen <= 0;
+            klin_d_write_count_seen <= 0;
+            klin_e_write_count_seen <= 0;
+        end else begin
+            if (cal_error)      saw_cal_error  <= 1'b1;
+            if (cal_done_pulse) saw_done_pulse <= 1'b1;
+
+            if (bg_wr_en)     bg_write_count_seen     <= bg_write_count_seen + 1;
+            if (klin_a_wr_en) klin_a_write_count_seen <= klin_a_write_count_seen + 1;
+            if (klin_b_wr_en) klin_b_write_count_seen <= klin_b_write_count_seen + 1;
+            if (klin_c_wr_en) klin_c_write_count_seen <= klin_c_write_count_seen + 1;
+            if (klin_d_wr_en) klin_d_write_count_seen <= klin_d_write_count_seen + 1;
+            if (klin_e_wr_en) klin_e_write_count_seen <= klin_e_write_count_seen + 1;
+        end
+    end
+
+    // ------------------------------------------------------------
+    // Basic helpers
+    // ------------------------------------------------------------
+    task automatic expect_local(input logic cond, input string msg);
+    begin
+        if (cond) begin
+            // $display("PASS: %s", msg);
+            pass++;
+        end else begin
+            $display("FAIL: %s", msg);
+            fail++;
+        end
+    end
+    endtask
+
+    task automatic clear_drive;
+    begin
+        hdr_valid    = 1'b0;
+        pkt_is_cal   = 1'b0;
+        pkt_msg_type = 8'h00;
+        batch_id     = 2'd0;
+        row_id       = 10'd0;
+        sample_valid = 1'b0;
+        sample_data  = 32'd0;
+        sample_last  = 1'b0;
+        batch_valid  = 1'b0;
+    end
+    endtask
+
+    task automatic clear_reads;
+    begin
+        bg_rd_en      = 1'b0; bg_rd_addr      = 10'd0;
+        klin_a_rd_en  = 1'b0; klin_a_rd_addr  = 10'd0;
+        klin_b_rd_en  = 1'b0; klin_b_rd_addr  = 10'd0;
+        klin_c_rd_en  = 1'b0; klin_c_rd_addr  = 10'd0;
+        klin_d_rd_en  = 1'b0; klin_d_rd_addr  = 10'd0;
+        klin_e_rd_en  = 1'b0; klin_e_rd_addr  = 10'd0;
+    end
+    endtask
+
+    task automatic reset_event_capture;
+    begin
+        @(negedge clk);
+        clear_event_latches = 1'b1;
+        @(negedge clk);
+        clear_event_latches = 1'b0;
+    end
+    endtask
+
+    task automatic idle_cycles(input int n);
+        int i;
+    begin
+        for (i = 0; i < n; i++) begin
+            @(negedge clk);
+            clear_drive();
+        end
+    end
+    endtask
+
+    task automatic hard_reset_dut;
+    begin
+        @(negedge clk);
+        clear_drive();
+        allow_cal = 1'b1;
+        dsp_busy  = 1'b0;
+        rst = 1'b1;
+        repeat (4) @(negedge clk);
+        rst = 1'b0;
+        repeat (2) @(negedge clk);
+        clear_drive();
+        reset_event_capture();
+    end
+    endtask
+
+    task automatic expect_leds(
+        input [7:0] rv,
+        input [7:0] pv,
+        input [7:0] ip,
+        input string tag
+    );
+    begin
+        expect_local(runtime_valid === rv, {tag, " runtime_valid"});
+        expect_local(pc_valid      === pv, {tag, " pc_valid"});
+        expect_local(in_progress   === ip, {tag, " in_progress"});
+    end
+    endtask
+
+    task automatic require_idle(input string tag);
+    begin
+        expect_local(cal_loading == 1'b0, {tag, " cal_loading==0"});
+        expect_local(in_progress == 8'h00, {tag, " in_progress all low"});
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Stimulus helpers
+    // ------------------------------------------------------------
+    task automatic send_cal_header(input [9:0] rid, input [1:0] bid);
+    begin
+        @(negedge clk);
+        hdr_valid    = 1'b1;
+        pkt_is_cal   = 1'b1;
+        pkt_msg_type = 8'h02;
+        batch_id     = bid;
+        row_id       = rid;
+        sample_valid = 1'b0;
+        sample_data  = 32'd0;
+        sample_last  = 1'b0;
+        batch_valid  = 1'b0;
+
+        @(negedge clk);
+        clear_drive();
+    end
+    endtask
+
+    task automatic send_noncal_header(input [7:0] mtype);
+    begin
+        @(negedge clk);
+        hdr_valid    = 1'b1;
+        pkt_is_cal   = 1'b0;
+        pkt_msg_type = mtype;
+        batch_id     = 2'd0;
+        row_id       = 10'd0;
+        sample_valid = 1'b0;
+        sample_data  = 32'd0;
+        sample_last  = 1'b0;
+        batch_valid  = 1'b0;
+
+        @(negedge clk);
+        clear_drive();
+    end
+    endtask
+
+    task automatic send_n_samples_no_end(input [31:0] base, input int n);
+        int i;
+    begin
+        for (i = 0; i < n; i++) begin
+            @(negedge clk);
+            hdr_valid    = 1'b0;
+            pkt_is_cal   = 1'b0;
+            pkt_msg_type = 8'h00;
+            batch_id     = 2'd0;
+            row_id       = 10'd0;
+            sample_valid = 1'b1;
+            sample_data  = base + i;
+            sample_last  = 1'b0;
+            batch_valid  = 1'b0;
+        end
+        @(negedge clk);
+        clear_drive();
+    end
+    endtask
+
+    task automatic send_batch_payload_valid(input [31:0] base);
+        int i;
+    begin
+        for (i = 0; i < 256; i++) begin
+            @(negedge clk);
+            hdr_valid    = 1'b0;
+            pkt_is_cal   = 1'b0;
+            pkt_msg_type = 8'h00;
+            batch_id     = 2'd0;
+            row_id       = 10'd0;
+            sample_valid = 1'b1;
+            sample_data  = base + i;
+            sample_last  = (i == 255);
+            batch_valid  = (i == 255);
+        end
+        @(negedge clk);
+        clear_drive();
+    end
+    endtask
+
+    task automatic send_batch_payload_early_end(input [31:0] base, input int last_index);
+        int i;
+    begin
+        for (i = 0; i <= last_index; i++) begin
+            @(negedge clk);
+            hdr_valid    = 1'b0;
+            pkt_is_cal   = 1'b0;
+            pkt_msg_type = 8'h00;
+            batch_id     = 2'd0;
+            row_id       = 10'd0;
+            sample_valid = 1'b1;
+            sample_data  = base + i;
+            sample_last  = (i == last_index);
+            batch_valid  = (i == last_index);
+        end
+        @(negedge clk);
+        clear_drive();
+    end
+    endtask
+
+    task automatic send_full_cal(input [9:0] rid, input [31:0] base);
+        int b;
+    begin
+        for (b = 0; b < 4; b++) begin
+            send_cal_header(rid, b[1:0]);
+            send_batch_payload_valid(base + (b * 32'h1000));
+        end
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Read helpers
+    // ------------------------------------------------------------
+    task automatic read_bg_addr(input [9:0] addr, output logic [31:0] data);
+    begin
+        @(negedge clk);
+        bg_rd_en   = 1'b1;
+        bg_rd_addr = addr;
+        @(posedge clk);
+        @(posedge clk);
+        @(negedge clk);
+        data = bg_rd_data;
+        bg_rd_en   = 1'b0;
+        bg_rd_addr = '0;
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Key readback checks
+    // ------------------------------------------------------------
+    task automatic check_bg_key_points(input [31:0] base, input string tag);
+        logic [31:0] got, exp;
+    begin
+        read_bg_addr(10'd0, got);     exp = base + 32'd0;
+        expect_local(got === exp, {tag, " BG[0]"});
+
+        read_bg_addr(10'd255, got);   exp = base + 32'd255;
+        expect_local(got === exp, {tag, " BG[255]"});
+
+        read_bg_addr(10'd256, got);   exp = base + 32'h1000;
+        expect_local(got === exp, {tag, " BG[256]"});
+
+        read_bg_addr(10'd1023, got);  exp = base + 32'h3000 + 32'd255;
+        expect_local(got === exp, {tag, " BG[1023]"});
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Test 0: reset LED state
+    // ------------------------------------------------------------
+    task automatic test_reset_led_state;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST 0: reset LED state");
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+
+        expect_leds(EXPECT_INIT_RUNTIME_VALID, 8'h00, 8'h00, "reset");
+        expect_local(cal_loading == 1'b0, "reset cal_loading low");
+        expect_local(saw_cal_error == 1'b0, "reset no cal_error");
+        expect_local(saw_done_pulse == 1'b0, "reset no done");
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Test 1: successful full load LED transitions
+    // ------------------------------------------------------------
+    task automatic test_success_led_flow;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST 1: success LED flow");
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+        reset_event_capture();
+
+        send_cal_header(RID_BG, 2'd0);
+        idle_cycles(1);
+        expect_local(runtime_valid[IDX_BG] == 1'b0, "batch0 clears runtime_valid BG");
+        expect_local(pc_valid[IDX_BG]      == 1'b0, "batch0 clears pc_valid BG");
+        expect_local(in_progress[IDX_BG]   == 1'b1, "batch0 sets in_progress BG");
+        expect_local(cal_loading           == 1'b1, "batch0 sets cal_loading BG");
+
+        send_batch_payload_valid(32'h1000_0000);
+        idle_cycles(1);
+        expect_local(in_progress[IDX_BG] == 1'b0, "after batch0 payload in_progress clears");
+        expect_local(cal_loading == 1'b0, "after batch0 payload waithdr cal_loading low");
+        expect_local(runtime_valid[IDX_BG] == 1'b0, "after batch0 runtime_valid still low");
+        expect_local(pc_valid[IDX_BG] == 1'b0, "after batch0 pc_valid still low");
+
+        send_cal_header(RID_BG, 2'd1);
+        expect_local(in_progress[IDX_BG] == 1'b1, "batch1 header sets in_progress BG");
+        send_batch_payload_valid(32'h1000_1000);
+
+        send_cal_header(RID_BG, 2'd2);
+        expect_local(in_progress[IDX_BG] == 1'b1, "batch2 header sets in_progress BG");
+        send_batch_payload_valid(32'h1000_2000);
+
+        send_cal_header(RID_BG, 2'd3);
+        expect_local(in_progress[IDX_BG] == 1'b1, "batch3 header sets in_progress BG");
+        send_batch_payload_valid(32'h1000_3000);
+        idle_cycles(4);
+
+        expect_local(saw_done_pulse == 1'b1, "success done pulse");
+        expect_local(saw_cal_error  == 1'b0, "success no cal_error");
+        expect_local(runtime_valid[IDX_BG] == 1'b1, "success runtime_valid high");
+        expect_local(pc_valid[IDX_BG]      == 1'b1, "success pc_valid high");
+        expect_local(in_progress[IDX_BG]   == 1'b0, "success in_progress low");
+        require_idle("success BG");
+        check_bg_key_points(32'h1000_0000, "success BG");
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Test 2: incomplete transaction stays stuck without watchdog
+    // ------------------------------------------------------------
+    task automatic test_header_only_stall;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST 2: header-only stall, no watchdog");
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+        reset_event_capture();
+
+        send_cal_header(RID_BG, 2'd0);
+        idle_cycles(50);
+
+        expect_local(runtime_valid[IDX_BG] == 1'b0, "stall runtime_valid low");
+        expect_local(pc_valid[IDX_BG]      == 1'b0, "stall pc_valid low");
+        expect_local(in_progress[IDX_BG]   == 1'b1, "stall in_progress stays high");
+        expect_local(cal_loading           == 1'b1, "stall cal_loading stays high");
+        expect_local(saw_cal_error         == 1'b0, "stall no cal_error");
+        expect_local(saw_done_pulse        == 1'b0, "stall no done");
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Test 3: partial row then batch0 of another row restarts cleanly
+    // ------------------------------------------------------------
+    task automatic test_partial_then_new_row_restart;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST 3: partial row then new row batch0 restart");
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+        reset_event_capture();
+
+        send_cal_header(RID_BG, 2'd0);
+        send_n_samples_no_end(32'h2000_0000, 20);
+
+        expect_local(runtime_valid[IDX_BG] == 1'b0, "partial BG runtime_valid low");
+        expect_local(pc_valid[IDX_BG]      == 1'b0, "partial BG pc_valid low");
+        expect_local(in_progress[IDX_BG]   == 1'b1, "partial BG in_progress high");
+
+        // New batch 0 for a different row should explicitly restart onto that row.
+        send_cal_header(RID_KLIN_A, 2'd0);
+        idle_cycles(1);
+
+        expect_local(runtime_valid[IDX_BG]      == 1'b0, "old partial BG remains invalid");
+        expect_local(pc_valid[IDX_BG]           == 1'b0, "old partial BG pc remains invalid");
+        expect_local(in_progress[IDX_BG]        == 1'b0, "old partial BG in_progress cleared");
+        expect_local(runtime_valid[IDX_KLIN_A]  == 1'b0, "new row batch0 clears runtime_valid");
+        expect_local(pc_valid[IDX_KLIN_A]       == 1'b0, "new row batch0 clears pc_valid");
+        expect_local(in_progress[IDX_KLIN_A]    == 1'b1, "new row batch0 sets in_progress");
+        expect_local(saw_cal_error              == 1'b0, "batch0 restart causes no cal_error");
+
+        send_batch_payload_valid(32'h2100_0000);
+        send_cal_header(RID_KLIN_A, 2'd1);
+        send_batch_payload_valid(32'h2100_1000);
+        send_cal_header(RID_KLIN_A, 2'd2);
+        send_batch_payload_valid(32'h2100_2000);
+        send_cal_header(RID_KLIN_A, 2'd3);
+        send_batch_payload_valid(32'h2100_3000);
+        idle_cycles(4);
+
+        expect_local(runtime_valid[IDX_BG]      == 1'b0, "BG still invalid after other row success");
+        expect_local(pc_valid[IDX_BG]           == 1'b0, "BG pc still invalid after other row success");
+        expect_local(runtime_valid[IDX_KLIN_A]  == 1'b1, "KLIN_A success runtime_valid high");
+        expect_local(pc_valid[IDX_KLIN_A]       == 1'b1, "KLIN_A success pc_valid high");
+        expect_local(in_progress[IDX_KLIN_A]    == 1'b0, "KLIN_A in_progress low");
+        expect_local(saw_done_pulse             == 1'b1, "KLIN_A done");
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Test 4: wrong continuation batch
+    // ------------------------------------------------------------
+    task automatic test_wrong_continuation_batch;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST 4: wrong continuation batch");
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+        reset_event_capture();
+
+        send_cal_header(RID_BG, 2'd0);
+        send_batch_payload_valid(32'h3000_0000);
+        idle_cycles(1);
+
+        expect_local(runtime_valid[IDX_BG] == 1'b0, "after batch0 BG still invalid");
+        expect_local(pc_valid[IDX_BG]      == 1'b0, "after batch0 BG pc still invalid");
+        expect_local(in_progress[IDX_BG]   == 1'b0, "after batch0 BG in_progress low");
+
+        // Skip batch 1 and send batch 2
+        send_cal_header(RID_BG, 2'd2);
+        idle_cycles(2);
+
+        expect_local(saw_cal_error         == 1'b1, "wrong continuation raises cal_error");
+        expect_local(saw_done_pulse        == 1'b0, "wrong continuation no done");
+        expect_local(runtime_valid[IDX_BG] == 1'b0, "wrong continuation leaves runtime_valid low");
+        expect_local(pc_valid[IDX_BG]      == 1'b0, "wrong continuation leaves pc_valid low");
+        expect_local(in_progress[IDX_BG]   == 1'b0, "wrong continuation leaves in_progress low");
+        require_idle("wrong continuation");
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Test 5: wrong row on continuation
+    // ------------------------------------------------------------
+    task automatic test_wrong_row_continuation;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST 5: wrong row on continuation");
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+        reset_event_capture();
+
+        send_cal_header(RID_BG, 2'd0);
+        send_batch_payload_valid(32'h3100_0000);
+        idle_cycles(1);
+
+        send_cal_header(RID_KLIN_A, 2'd1);
+        idle_cycles(2);
+
+        expect_local(saw_cal_error           == 1'b1, "wrong row continuation raises cal_error");
+        expect_local(runtime_valid[IDX_BG]   == 1'b0, "wrong row continuation BG invalid");
+        expect_local(pc_valid[IDX_BG]        == 1'b0, "wrong row continuation BG pc invalid");
+        expect_local(in_progress[IDX_BG]     == 1'b0, "wrong row continuation BG in_progress low");
+        expect_local(runtime_valid[IDX_KLIN_A] == EXPECT_INIT_RUNTIME_VALID[IDX_KLIN_A],
+                     "wrong row continuation does not start new nonzero row");
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Test 6: early end malformed batch
+    // ------------------------------------------------------------
+    task automatic test_early_end_leds;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST 6: early end malformed batch");
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+        reset_event_capture();
+
+        send_cal_header(RID_BG, 2'd0);
+        idle_cycles(1);
+
+        expect_local(runtime_valid[IDX_BG] == 1'b0, "early-end start clears runtime_valid");
+        expect_local(pc_valid[IDX_BG]      == 1'b0, "early-end start clears pc_valid");
+        expect_local(in_progress[IDX_BG]   == 1'b1, "early-end start sets in_progress");
+
+        send_batch_payload_early_end(32'h3200_0000, 73);
+        idle_cycles(4);
+
+        expect_local(saw_cal_error         == 1'b1, "early end raises cal_error");
+        expect_local(saw_done_pulse        == 1'b0, "early end no done");
+        expect_local(runtime_valid[IDX_BG] == 1'b0, "early end runtime_valid stays low");
+        expect_local(pc_valid[IDX_BG]      == 1'b0, "early end pc_valid stays low");
+        expect_local(in_progress[IDX_BG]   == 1'b0, "early end clears in_progress");
+        expect_local(bg_write_count_seen > 0, "early end wrote some samples");
+        require_idle("early end");
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Test 7: non-cal header during active load aborts
+    // ------------------------------------------------------------
+    task automatic test_noncal_interrupt;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST 7: non-cal header during active load");
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+        reset_event_capture();
+
+        send_cal_header(RID_BG, 2'd0);
+        send_n_samples_no_end(32'h3300_0000, 5);
+        send_noncal_header(8'h01);
+        idle_cycles(2);
+
+        expect_local(saw_cal_error         == 1'b1, "non-cal interrupt raises cal_error");
+        expect_local(runtime_valid[IDX_BG] == 1'b0, "non-cal interrupt runtime_valid low");
+        expect_local(pc_valid[IDX_BG]      == 1'b0, "non-cal interrupt pc_valid low");
+        expect_local(in_progress[IDX_BG]   == 1'b0, "non-cal interrupt clears in_progress");
+        require_idle("non-cal interrupt");
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Test 8: stray samples while idle
+    // ------------------------------------------------------------
+    task automatic test_stray_samples_idle;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST 8: stray samples while idle");
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+        reset_event_capture();
+
+        @(negedge clk);
+        sample_valid = 1'b1;
+        sample_data  = 32'hDEAD_BEEF;
+        sample_last  = 1'b0;
+        batch_valid  = 1'b0;
+
+        @(negedge clk);
+        clear_drive();
+        idle_cycles(2);
+
+        expect_local(saw_cal_error == 1'b1, "stray sample while idle raises cal_error");
+        expect_leds(EXPECT_INIT_RUNTIME_VALID, 8'h00, 8'h00, "stray sample while idle LED state");
+        require_idle("stray sample while idle");
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Test 9: allow_cal rejection
+    // ------------------------------------------------------------
+    task automatic test_allow_cal_reject;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST 9: allow_cal rejection");
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+        reset_event_capture();
+
+        allow_cal = 1'b0;
+        send_cal_header(RID_BG, 2'd0);
+        idle_cycles(2);
+
+        expect_local(cal_rejected_mode == 1'b1, "allow_cal rejection sets cal_rejected_mode");
+        expect_local(saw_cal_error == 1'b0, "allow_cal rejection no cal_error from IDLE");
+        expect_leds(EXPECT_INIT_RUNTIME_VALID, 8'h00, 8'h00, "allow_cal rejection LEDs");
+        require_idle("allow_cal rejection");
+        allow_cal = 1'b1;
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Test 10: dsp_busy rejection
+    // ------------------------------------------------------------
+    task automatic test_dsp_busy_reject;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST 10: dsp_busy rejection");
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+        reset_event_capture();
+
+        dsp_busy = 1'b1;
+        send_cal_header(RID_BG, 2'd0);
+        idle_cycles(2);
+
+        expect_local(cal_rejected_busy == 1'b1, "dsp_busy rejection sets cal_rejected_busy");
+        expect_local(saw_cal_error == 1'b0, "dsp_busy rejection no cal_error from IDLE");
+        expect_leds(EXPECT_INIT_RUNTIME_VALID, 8'h00, 8'h00, "dsp_busy rejection LEDs");
+        require_idle("dsp_busy rejection");
+        dsp_busy = 1'b0;
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Test 11: recovery after failure
+    // ------------------------------------------------------------
+    task automatic test_recovery_after_invalid;
+    begin
+        $display("--------------------------------------------------");
+        $display("TEST 11: recovery after invalid");
+        $display("--------------------------------------------------");
+
+        hard_reset_dut();
+        reset_event_capture();
+
+        send_cal_header(RID_BG, 2'd0);
+        send_batch_payload_early_end(32'h3400_0000, 51);
+        idle_cycles(4);
+
+        expect_local(saw_cal_error == 1'b1, "recovery setup invalid raises error");
+        expect_local(runtime_valid[IDX_BG] == 1'b0, "recovery setup runtime_valid low");
+        expect_local(pc_valid[IDX_BG]      == 1'b0, "recovery setup pc_valid low");
+        expect_local(in_progress[IDX_BG]   == 1'b0, "recovery setup in_progress low");
+
+        reset_event_capture();
+        send_full_cal(RID_BG, 32'h3500_0000);
+        idle_cycles(4);
+
+        expect_local(saw_done_pulse        == 1'b1, "recovery valid done");
+        expect_local(saw_cal_error         == 1'b0, "recovery valid no new error");
+        expect_local(runtime_valid[IDX_BG] == 1'b1, "recovery valid runtime_valid high");
+        expect_local(pc_valid[IDX_BG]      == 1'b1, "recovery valid pc_valid high");
+        expect_local(in_progress[IDX_BG]   == 1'b0, "recovery valid in_progress low");
+        check_bg_key_points(32'h3500_0000, "recovery BG");
+    end
+    endtask
+
+    // ------------------------------------------------------------
+    // Main test flow
+    // ------------------------------------------------------------
+    initial begin
+        clear_drive();
+        clear_reads();
+        clear_event_latches = 1'b0;
+        allow_cal  = 1'b1;
+        dsp_busy   = 1'b0;
+
+        repeat (8) @(negedge clk);
+        rst = 1'b0;
+        idle_cycles(2);
+
+        test_reset_led_state();
+        test_success_led_flow();
+        test_header_only_stall();
+        test_partial_then_new_row_restart();
+        test_wrong_continuation_batch();
+        test_wrong_row_continuation();
+        test_early_end_leds();
+        test_noncal_interrupt();
+        test_stray_samples_idle();
+        test_allow_cal_reject();
+        test_dsp_busy_reject();
+        test_recovery_after_invalid();
+
+        $display("=================================");
+        $display("TOTAL PASS = %0d", pass);
+        $display("TOTAL FAIL = %0d", fail);
+        $display("=================================");
+        $finish;
+    end
+
+endmodule
+
+/*
 `timescale 1ns/1ps
 
 module tb_calibration_loader;
@@ -31,6 +1005,8 @@ module tb_calibration_loader;
     logic        cal_rejected_busy;
     logic        cal_rejected_mode;
     logic [7:0]  runtime_valid;
+    logic [7:0]  pc_valid;
+    logic [7:0]  in_progress;
 
     logic        bg_wr_en;
     logic [0:0]  bg_wr_we;
@@ -160,6 +1136,8 @@ module tb_calibration_loader;
         .cal_rejected_busy(cal_rejected_busy),
         .cal_rejected_mode(cal_rejected_mode),
         .runtime_valid(runtime_valid),
+        .pc_valid(pc_valid),
+        .in_progress(in_progress),
 
         .bg_wr_en(bg_wr_en),
         .bg_wr_we(bg_wr_we),
@@ -918,3 +1896,4 @@ module tb_calibration_loader;
     end
 
 endmodule
+ */
